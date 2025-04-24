@@ -1,7 +1,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Camera, CameraOff, Video } from 'lucide-react';
+import { Camera, CameraOff, RefreshCw } from 'lucide-react';
 import { toast } from "sonner";
 import Scoreboard from './Scoreboard';
 
@@ -35,6 +35,7 @@ const LivestreamView = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [streamIndicator, setStreamIndicator] = useState(0);
   const [attemptingCamera, setAttemptingCamera] = useState(false);
+  const setupAttempted = useRef(false);
 
   // Simulated streaming indicator that pulses
   useEffect(() => {
@@ -48,9 +49,12 @@ const LivestreamView = ({
 
   // Handle camera setup with improved error handling
   const setupCamera = async () => {
+    if (attemptingCamera) return; // Prevent multiple simultaneous setup attempts
+    
     try {
       console.log("Setting up camera...");
       setAttemptingCamera(true);
+      setCameraError(null);
       
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Camera access not supported in this browser");
@@ -68,12 +72,8 @@ const LivestreamView = ({
 
       // Simpler constraints for better compatibility
       const constraints = {
-        video: {
-          facingMode: "user", // Default to front camera for better first experience
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }, 
-        audio: true
+        video: true, 
+        audio: false // Simplify to just video first
       };
 
       console.log("Requesting media access with constraints:", constraints);
@@ -84,7 +84,6 @@ const LivestreamView = ({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
-        // Add event listeners to track playback status
         videoRef.current.onloadedmetadata = () => {
           console.log("Video metadata loaded, playing video");
           videoRef.current?.play()
@@ -92,24 +91,16 @@ const LivestreamView = ({
               console.log("Video playback started successfully");
               setCameraEnabled(true);
               setCameraError(null);
+              setAttemptingCamera(false);
             })
             .catch(err => {
               console.error("Error playing video:", err);
               setCameraError("Error starting video playback. Try refreshing the page.");
+              setAttemptingCamera(false);
               toast.error("Camera error", {
                 description: "Could not start video playback."
               });
             });
-        };
-        
-        videoRef.current.onplaying = () => {
-          console.log("Video is now playing");
-          setCameraEnabled(true);
-        };
-        
-        videoRef.current.onerror = (event) => {
-          console.error("Video element error:", event);
-          setCameraError("Video element encountered an error.");
         };
       }
     } catch (err: any) {
@@ -124,29 +115,26 @@ const LivestreamView = ({
       } else if (err.name === "NotReadableError") {
         errorMessage += "Camera may be in use by another application.";
       } else {
-        errorMessage += "Please check permissions and refresh the page.";
+        errorMessage += err.message || "Please check permissions and refresh the page.";
       }
       
       setCameraError(errorMessage);
+      setAttemptingCamera(false);
       toast.error("Camera access error", {
         description: errorMessage
       });
-    } finally {
-      setAttemptingCamera(false);
     }
   };
 
-  // Initialize camera on component mount
+  // Initialize camera on component mount - only once
   useEffect(() => {
-    let mounted = true;
-    
-    if (!cameraEnabled && !attemptingCamera) {
+    if (!setupAttempted.current && !cameraEnabled) {
+      setupAttempted.current = true;
       setupCamera();
     }
-
+    
     // Cleanup
     return () => {
-      mounted = false;
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach(track => {
@@ -155,13 +143,13 @@ const LivestreamView = ({
         });
       }
     };
-  }, [cameraEnabled, attemptingCamera]);
+  }, []);
 
   const handleRetryCamera = () => {
     console.log("Retrying camera access...");
     setCameraEnabled(false);
     setCameraError(null);
-    // setupCamera will be triggered by the useEffect
+    setupCamera();
   };
 
   return (
@@ -183,11 +171,20 @@ const LivestreamView = ({
             <p className="mb-4">{cameraError || "Please enable camera permissions"}</p>
             <button 
               onClick={handleRetryCamera}
-              className="bg-sportRed hover:bg-sportRed/80 text-white py-2 px-4 rounded-full"
+              className="bg-sportRed hover:bg-sportRed/80 text-white py-2 px-4 rounded-full flex items-center justify-center gap-2"
               disabled={attemptingCamera}
             >
-              <Camera className="inline-block mr-2" size={18} /> 
-              {attemptingCamera ? "Connecting..." : "Try Again"}
+              {attemptingCamera ? (
+                <>
+                  <RefreshCw className="animate-spin" size={18} />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Camera size={18} />
+                  Try Again
+                </>
+              )}
             </button>
           </div>
         </div>

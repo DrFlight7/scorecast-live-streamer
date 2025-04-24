@@ -96,18 +96,25 @@ const LiveStream = () => {
     setRemoteDialogOpen(true);
   };
   
-  const handlePermissionCheck = () => {
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(() => {
-        toast.success("Camera permissions granted!");
-        setPermissionDialogOpen(false);
-      })
-      .catch((error) => {
-        console.error("Permission error:", error);
-        toast.error("Couldn't access camera", {
-          description: "Please check your browser settings and permissions."
-        });
+  const handlePermissionCheck = async () => {
+    try {
+      toast.info("Requesting camera access...");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      
+      // Stop tracks right away as we just wanted to check permissions
+      stream.getTracks().forEach(track => track.stop());
+      
+      toast.success("Camera permissions granted!");
+      setPermissionDialogOpen(false);
+      
+      // Force page reload to reinitialize camera with new permissions
+      window.location.reload();
+    } catch (error) {
+      console.error("Permission error:", error);
+      toast.error("Couldn't access camera", {
+        description: "Please check your browser settings and permissions."
       });
+    }
   };
   
   // Generate a fake remote control URL for demonstration purposes
@@ -222,6 +229,9 @@ const LiveStream = () => {
             >
               Check Camera Access
             </Button>
+            <p className="mt-4 text-xs text-sportGray/60 text-center">
+              Note: After granting permissions, you may need to refresh the page.
+            </p>
           </div>
         </DialogContent>
       </Dialog>

@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -61,7 +62,16 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				}
+				},
+				// Sport-themed custom colors
+				sportBlue: '#1E88E5',
+				sportRed: '#E53935',
+				sportNavy: '#0D47A1',
+				sportGray: '#ECEFF1',
+				sportGreen: '#43A047',
+				sportOrange: '#FB8C00',
+				sportPurple: '#8E24AA',
+				sportYellow: '#FFD600',
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
@@ -84,11 +94,20 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'score-pulse': {
+					'0%, 100%': { 
+						transform: 'scale(1)'
+					},
+					'50%': { 
+						transform: 'scale(1.05)'
+					},
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'score-pulse': 'score-pulse 0.5s ease-in-out'
 			}
 		}
 	},

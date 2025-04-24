@@ -45,36 +45,54 @@ const LivestreamView = ({
     }
   }, [isStreaming]);
 
-  // Handle camera setup
+  // Handle camera setup with improved error handling
   useEffect(() => {
+    let mounted = true;
+    
     async function setupCamera() {
       try {
+        console.log("Setting up camera...");
+        
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           throw new Error("Camera access not supported in this browser");
         }
 
         const constraints = {
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
+          video: true, // Simplifying constraints for better compatibility
           audio: true
         };
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log("Requesting media access with constraints:", constraints);
         
-        if (videoRef.current) {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log("Camera access granted, setting up video stream");
+        
+        if (videoRef.current && mounted) {
           videoRef.current.srcObject = stream;
-          setCameraEnabled(true);
-          setCameraError(null);
+          videoRef.current.onloadedmetadata = () => {
+            if (mounted) {
+              console.log("Video metadata loaded, playing video");
+              videoRef.current?.play()
+                .then(() => {
+                  console.log("Video playback started");
+                  setCameraEnabled(true);
+                  setCameraError(null);
+                })
+                .catch(err => {
+                  console.error("Error playing video:", err);
+                  setCameraError("Error starting video playback. Please reload.");
+                });
+            }
+          };
         }
       } catch (err) {
         console.error("Error accessing camera:", err);
-        setCameraError("Could not access camera. Please check permissions.");
-        toast.error("Camera access error", {
-          description: "Could not access your camera. Please check permissions."
-        });
+        if (mounted) {
+          setCameraError("Could not access camera. Please check permissions and refresh the page.");
+          toast.error("Camera access error", {
+            description: "Could not access your camera. Please check permissions."
+          });
+        }
       }
     }
 
@@ -84,12 +102,26 @@ const LivestreamView = ({
 
     // Cleanup
     return () => {
+      mounted = false;
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach(track => {
+          console.log("Stopping track:", track.kind);
+          track.stop();
+        });
       }
     };
   }, []);
+
+  const handleRetryCamera = () => {
+    console.log("Retrying camera access...");
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+    setCameraEnabled(false);
+    setCameraError(null);
+  };
 
   return (
     <div className={cn('relative w-full h-full', className)}>
@@ -107,7 +139,13 @@ const LivestreamView = ({
           <div className="text-center text-white p-4">
             <CameraOff size={64} className="mx-auto mb-4" />
             <p className="text-xl font-bold">Camera not available</p>
-            <p>{cameraError || "Please enable camera permissions"}</p>
+            <p className="mb-4">{cameraError || "Please enable camera permissions"}</p>
+            <button 
+              onClick={handleRetryCamera}
+              className="bg-sportRed hover:bg-sportRed/80 text-white py-2 px-4 rounded-full"
+            >
+              <Camera className="inline-block mr-2" size={18} /> Try Again
+            </button>
           </div>
         </div>
       )}

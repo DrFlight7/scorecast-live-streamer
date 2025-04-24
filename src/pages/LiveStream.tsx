@@ -2,11 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Pause, Play, StopCircle, Smartphone } from 'lucide-react';
+import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QRCodeSVG } from 'qrcode.react';
 
 const LiveStream = () => {
@@ -27,6 +27,7 @@ const LiveStream = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [lastScored, setLastScored] = useState<'home' | 'away' | null>(null);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
+  const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   
   // Clear last scored effect after a delay
   useEffect(() => {
@@ -38,6 +39,15 @@ const LiveStream = () => {
       return () => clearTimeout(timer);
     }
   }, [lastScored]);
+
+  // Show camera permission dialog on component mount
+  useEffect(() => {
+    const hasSeenPermission = localStorage.getItem('hasSeenCameraPermission');
+    if (!hasSeenPermission) {
+      setPermissionDialogOpen(true);
+      localStorage.setItem('hasSeenCameraPermission', 'true');
+    }
+  }, []);
   
   const handleHomeScoreChange = (amount: number) => {
     const newScore = Math.max(0, homeTeam.score + amount);
@@ -84,7 +94,20 @@ const LiveStream = () => {
   
   const openRemoteControl = () => {
     setRemoteDialogOpen(true);
-    toast.info("Remote control feature will be available in future updates");
+  };
+  
+  const handlePermissionCheck = () => {
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(() => {
+        toast.success("Camera permissions granted!");
+        setPermissionDialogOpen(false);
+      })
+      .catch((error) => {
+        console.error("Permission error:", error);
+        toast.error("Couldn't access camera", {
+          description: "Please check your browser settings and permissions."
+        });
+      });
   };
   
   // Generate a fake remote control URL for demonstration purposes
@@ -160,6 +183,9 @@ const LiveStream = () => {
         <DialogContent className="bg-sportNavy text-white border-sportGray/20">
           <DialogHeader>
             <DialogTitle>Remote Control</DialogTitle>
+            <DialogDescription className="text-sportGray/80">
+              Scan this QR code with another device to remotely control the scoreboard.
+            </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center">
             <div className="bg-white p-4 rounded-lg">
@@ -169,13 +195,33 @@ const LiveStream = () => {
                 level="H"
               />
             </div>
-            <p className="mt-4 text-center text-sm">
-              Scan this QR code with another device to remotely control the scoreboard.
-              <br /><br />
-              <span className="text-sportGray/60 text-xs">
-                Note: This is a demo feature. Remote control functionality would be implemented in a full version.
-              </span>
+            <p className="mt-4 text-center text-sm text-sportGray/60">
+              Note: This is a demo feature. Remote control functionality would be implemented in a full version.
             </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Camera permissions dialog */}
+      <Dialog open={permissionDialogOpen} onOpenChange={setPermissionDialogOpen}>
+        <DialogContent className="bg-sportNavy text-white border-sportGray/20">
+          <DialogHeader>
+            <DialogTitle>Camera Access Required</DialogTitle>
+            <DialogDescription className="text-sportGray/80">
+              SportCast needs access to your camera to stream. Please allow camera access when prompted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center p-4">
+            <Camera size={64} className="text-sportBlue mb-4" />
+            <p className="mb-4 text-center">
+              If you've previously denied camera access, you may need to update your browser settings.
+            </p>
+            <Button 
+              onClick={handlePermissionCheck}
+              className="bg-sportBlue hover:bg-sportBlue/80 w-full"
+            >
+              Check Camera Access
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
@@ -28,6 +29,7 @@ const LiveStream = () => {
   const [lastScored, setLastScored] = useState<'home' | 'away' | null>(null);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
+  const [showCameraTip, setShowCameraTip] = useState(false);
   
   // Clear last scored effect after a delay
   useEffect(() => {
@@ -47,6 +49,13 @@ const LiveStream = () => {
       setPermissionDialogOpen(true);
       localStorage.setItem('hasSeenCameraPermission', 'true');
     }
+    
+    // Show camera troubleshooting tip after a delay
+    const tipTimer = setTimeout(() => {
+      setShowCameraTip(true);
+    }, 5000);
+    
+    return () => clearTimeout(tipTimer);
   }, []);
   
   const handleHomeScoreChange = (amount: number) => {
@@ -99,7 +108,14 @@ const LiveStream = () => {
   const handlePermissionCheck = async () => {
     try {
       toast.info("Requesting camera access...");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user"
+        }, 
+        audio: false 
+      });
       
       // Stop tracks right away as we just wanted to check permissions
       stream.getTracks().forEach(track => track.stop());
@@ -108,13 +124,27 @@ const LiveStream = () => {
       setPermissionDialogOpen(false);
       
       // Force page reload to reinitialize camera with new permissions
-      window.location.reload();
+      toast.info("Refreshing page to apply camera permissions...", {
+        duration: 3000,
+        onDismiss: () => {
+          window.location.reload();
+        }
+      });
+      
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
     } catch (error) {
       console.error("Permission error:", error);
       toast.error("Couldn't access camera", {
         description: "Please check your browser settings and permissions."
       });
     }
+  };
+  
+  const handleForceReload = () => {
+    toast.info("Refreshing page...");
+    window.location.reload();
   };
   
   // Generate a fake remote control URL for demonstration purposes
@@ -153,6 +183,16 @@ const LiveStream = () => {
               variant="ghost" 
               size="sm"
               className="text-white hover:bg-black/30"
+              onClick={handleForceReload}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              Reload
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="text-white hover:bg-black/30"
               onClick={handleTogglePause}
             >
               {isPaused ? (
@@ -173,6 +213,17 @@ const LiveStream = () => {
             </Button>
           </div>
         </div>
+        
+        {/* Camera troubleshooting tip */}
+        {showCameraTip && (
+          <div className="absolute bottom-4 right-4 max-w-xs">
+            <Alert variant="destructive" className="bg-white/90 border-sportRed">
+              <AlertDescription className="text-black text-xs">
+                <strong>Camera not showing?</strong> Try the "Reload" button above or check camera permissions in your browser settings.
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
       </div>
       
       {/* Bottom controls area */}
@@ -230,7 +281,7 @@ const LiveStream = () => {
               Check Camera Access
             </Button>
             <p className="mt-4 text-xs text-sportGray/60 text-center">
-              Note: After granting permissions, you may need to refresh the page.
+              Note: After granting permissions, the page will automatically refresh.
             </p>
           </div>
         </DialogContent>

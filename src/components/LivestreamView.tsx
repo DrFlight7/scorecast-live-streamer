@@ -70,10 +70,17 @@ const LivestreamView = ({
         videoRef.current.srcObject = null;
       }
 
-      // Simpler constraints for better compatibility
+      // Force a delay to ensure previous streams are fully stopped
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Use default camera with basic constraints
       const constraints = {
-        video: true, 
-        audio: false // Simplify to just video first
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: "user"
+        },
+        audio: false
       };
 
       console.log("Requesting media access with constraints:", constraints);
@@ -84,23 +91,34 @@ const LivestreamView = ({
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
+        // Set event handler for metadata loading
         videoRef.current.onloadedmetadata = () => {
           console.log("Video metadata loaded, playing video");
-          videoRef.current?.play()
-            .then(() => {
-              console.log("Video playback started successfully");
-              setCameraEnabled(true);
-              setCameraError(null);
-              setAttemptingCamera(false);
-            })
-            .catch(err => {
-              console.error("Error playing video:", err);
-              setCameraError("Error starting video playback. Try refreshing the page.");
-              setAttemptingCamera(false);
-              toast.error("Camera error", {
-                description: "Could not start video playback."
+          if (videoRef.current) {
+            videoRef.current.play()
+              .then(() => {
+                console.log("Video playback started successfully");
+                setCameraEnabled(true);
+                setCameraError(null);
+                setAttemptingCamera(false);
+                toast.success("Camera connected successfully");
+              })
+              .catch(err => {
+                console.error("Error playing video:", err);
+                setCameraError("Error starting video playback. Try refreshing the page.");
+                setAttemptingCamera(false);
+                toast.error("Camera error", {
+                  description: "Could not start video playback. Try refreshing the page."
+                });
               });
-            });
+          }
+        };
+        
+        // Add error handler to video element
+        videoRef.current.onerror = (event) => {
+          console.error("Video element error:", event);
+          setCameraError("Video element encountered an error");
+          setAttemptingCamera(false);
         };
       }
     } catch (err: any) {
@@ -114,6 +132,8 @@ const LivestreamView = ({
         errorMessage += "No camera device found.";
       } else if (err.name === "NotReadableError") {
         errorMessage += "Camera may be in use by another application.";
+      } else if (err.name === "OverconstrainedError") {
+        errorMessage += "Camera constraints not satisfied. Try a different camera.";
       } else {
         errorMessage += err.message || "Please check permissions and refresh the page.";
       }
@@ -126,11 +146,17 @@ const LivestreamView = ({
     }
   };
 
-  // Initialize camera on component mount - only once
+  // Initialize camera on component mount - with retry logic
   useEffect(() => {
-    if (!setupAttempted.current && !cameraEnabled) {
+    if (!setupAttempted.current) {
       setupAttempted.current = true;
-      setupCamera();
+      
+      // Delay camera initialization slightly to ensure DOM is fully ready
+      const timer = setTimeout(() => {
+        setupCamera();
+      }, 1000);
+      
+      return () => clearTimeout(timer);
     }
     
     // Cleanup
@@ -149,7 +175,14 @@ const LivestreamView = ({
     console.log("Retrying camera access...");
     setCameraEnabled(false);
     setCameraError(null);
-    setupCamera();
+    
+    // Force page reload as a last resort if multiple attempts have failed
+    if (setupAttempted.current) {
+      toast.info("Refreshing camera connection...");
+      window.location.reload();
+    } else {
+      setupCamera();
+    }
   };
 
   return (

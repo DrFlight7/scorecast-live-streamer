@@ -54,6 +54,7 @@ const Index = () => {
         <footer className="mt-auto pt-10 text-center text-sportGray/60 text-sm">
           <p>SportCast v1.0</p>
           <p className="mt-1">Stream sports games with professional overlays</p>
+          <p className="mt-1">Developed by: Marco Marvin L. Rado, DIT</p>
         </footer>
       </div>
     </div>

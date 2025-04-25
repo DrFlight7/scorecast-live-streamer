@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Camera, CameraOff, RefreshCw } from 'lucide-react';
@@ -33,7 +32,6 @@ const LivestreamView = ({
   const { videoRef, isEnabled, error, isAttempting, retryCamera } = useCamera();
   const [streamIndicator, setStreamIndicator] = React.useState(0);
 
-  // Streaming indicator pulse effect
   React.useEffect(() => {
     if (isStreaming) {
       const interval = setInterval(() => {
@@ -45,16 +43,18 @@ const LivestreamView = ({
 
   return (
     <div className={cn('relative w-full h-full', className)}>
-      {/* Camera preview */}
-      {isEnabled ? (
-        <video 
-          ref={videoRef}
-          autoPlay 
-          playsInline
-          muted
-          className="w-full h-full object-cover rounded-lg"
-        />
-      ) : (
+      <video 
+        ref={videoRef}
+        autoPlay 
+        playsInline
+        muted
+        className={cn(
+          "w-full h-full object-cover rounded-lg",
+          !isEnabled && "hidden"
+        )}
+      />
+      
+      {!isEnabled && (
         <div className="w-full h-full flex items-center justify-center bg-black rounded-lg">
           <div className="text-center text-white p-4">
             <CameraOff size={64} className="mx-auto mb-4" />
@@ -81,7 +81,6 @@ const LivestreamView = ({
         </div>
       )}
       
-      {/* Scoreboard overlay */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 w-11/12">
         <Scoreboard
           homeTeam={homeTeam}
@@ -91,7 +90,6 @@ const LivestreamView = ({
         />
       </div>
       
-      {/* Stream indicator */}
       {isStreaming && (
         <div className="absolute top-20 left-4 flex items-center space-x-2 bg-black/40 py-1 px-3 rounded-full">
           <div className={cn(

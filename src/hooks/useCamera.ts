@@ -8,14 +8,27 @@ export const useCamera = () => {
   const [error, setError] = useState<string | null>(null);
   const [isAttempting, setIsAttempting] = useState(false);
   const setupAttempted = useRef(false);
+  const retryCount = useRef(0);
+  const maxRetries = 3;
 
   const initializeCamera = async () => {
-    if (isAttempting) return;
+    if (isAttempting || !videoRef.current) {
+      console.log("Skipping initialization - already attempting or no video element");
+      return;
+    }
     
     try {
-      console.log("Starting camera initialization...");
+      console.log("Starting camera initialization, attempt:", retryCount.current + 1);
       setIsAttempting(true);
       setError(null);
+
+      // Check if camera devices exist
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasCamera = devices.some(device => device.kind === 'videoinput');
+      
+      if (!hasCamera) {
+        throw new Error("No camera detected on this device");
+      }
 
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera API not available");
@@ -28,10 +41,6 @@ export const useCamera = () => {
       });
 
       console.log("Camera permission granted, got stream");
-
-      if (!videoRef.current) {
-        throw new Error("Video element not ready");
-      }
 
       // Stop any existing streams
       if (videoRef.current.srcObject) {
@@ -54,6 +63,7 @@ export const useCamera = () => {
       console.log("Camera successfully initialized");
       setIsEnabled(true);
       setError(null);
+      retryCount.current = 0;
       toast.success("Camera connected");
     } catch (err: any) {
       console.error("Camera initialization failed:", err);
@@ -63,29 +73,44 @@ export const useCamera = () => {
         message += "Please allow camera access in your browser settings.";
       } else if (err.name === "NotFoundError") {
         message += "No camera found.";
+      } else if (err.name === "NotReadableError") {
+        message += "Camera may be in use by another application.";
       } else {
         message += err.message || "Please check permissions and try again.";
       }
       
       setError(message);
       toast.error("Camera error", { description: message });
+
+      // Implement retry logic
+      if (retryCount.current < maxRetries) {
+        retryCount.current++;
+        console.log(`Retrying camera initialization in 2 seconds (attempt ${retryCount.current})`);
+        setTimeout(() => {
+          setIsAttempting(false);
+          initializeCamera();
+        }, 2000);
+      }
     } finally {
-      setIsAttempting(false);
+      if (retryCount.current >= maxRetries) {
+        setIsAttempting(false);
+      }
     }
   };
 
   const retryCamera = () => {
-    console.log("Retrying camera initialization...");
+    console.log("Manual retry of camera initialization...");
+    retryCount.current = 0;
     setIsEnabled(false);
     setError(null);
+    setIsAttempting(false);
     initializeCamera();
   };
 
-  // Initialize on mount
+  // Initialize on mount with a delay to ensure DOM is ready
   useEffect(() => {
     if (!setupAttempted.current) {
       setupAttempted.current = true;
-      // Small delay to ensure DOM is ready
       const timer = setTimeout(() => {
         initializeCamera();
       }, 1000);

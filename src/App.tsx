@@ -11,6 +11,9 @@ import StreamSetup from "./pages/StreamSetup";
 import LiveStream from "./pages/LiveStream";
 import NotFound from "./pages/NotFound";
 
+import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsOfService from "./pages/TermsOfService";
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -26,6 +29,10 @@ const App = () => (
             <Route path="/setup" element={<StreamSetup />} />
             <Route path="/stream" element={<LiveStream />} />
             <Route path="*" element={<NotFound />} />
+
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+
           </Routes>
         </AuthProvider>
       </BrowserRouter>

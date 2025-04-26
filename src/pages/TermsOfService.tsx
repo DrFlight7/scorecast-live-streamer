@@ -38,7 +38,7 @@ const TermsOfService: React.FC = () => {
 
         <h2 className="text-2xl font-semibold mb-3">Limitation of Liability</h2>
         <p className="mb-6 text-gray-700">
-          In no event shall <strong>Your App Name</strong>, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages arising out of your use of the Service.
+          In no event shall <strong>StreamCast</strong>, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable for any indirect, incidental, special, consequential, or punitive damages arising out of your use of the Service.
         </p>
 
         <h2 className="text-2xl font-semibold mb-3">Changes to These Terms</h2>

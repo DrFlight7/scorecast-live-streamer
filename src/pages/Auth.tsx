@@ -14,14 +14,15 @@ const Auth = () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
-          scopes: 'publish_video', // Required for Facebook Live streaming
+          // Removed problematic scope
+          redirectTo: window.location.origin,
         },
       });
 
       if (error) throw error;
       
-      // Redirect to home after successful login
-      if (data) navigate('/');
+      // Redirect happens automatically after successful login
+      // No need to navigate manually here as the auth state change will handle it
     } catch (error) {
       console.error('Facebook auth error:', error);
       toast.error('Login failed', {
@@ -48,7 +49,7 @@ const Auth = () => {
         </Button>
 
         <p className="mt-6 text-sm text-sportGray/60 text-center">
-          By continuing, you agree to SportCast's Terms of Service and Privacy Policy
+          By continuing, you agree to SportCast's <a href="/terms" className="underline hover:text-white">Terms of Service</a> and <a href="/privacy" className="underline hover:text-white">Privacy Policy</a>
         </p>
       </div>
     </div>

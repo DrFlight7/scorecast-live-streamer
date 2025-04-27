@@ -30,12 +30,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (event === 'SIGNED_IN') {
           // Don't redirect if already on a protected page
           if (location.pathname === '/auth') {
-            navigate('/');
+            navigate('/setup');
           }
         }
 
         if (event === 'SIGNED_OUT') {
-          navigate('/auth');
+          window.location.href = 'https://preview--scorecast-live-streamer.lovable.app/auth';
         }
       }
     );
@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       // If no session and not on auth page, redirect to auth
       if (!currentSession && location.pathname !== '/auth') {
-        navigate('/auth');
+        window.location.href = 'https://preview--scorecast-live-streamer.lovable.app/auth';
       }
     });
 

@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -23,8 +22,8 @@ const Auth = () => {
           }
           
           if (data?.session) {
-            // Successfully logged in - redirect to home
-            navigate('/');
+            // Successfully logged in - redirect to setup
+            navigate('/setup');
             toast.success('Successfully logged in');
           }
         } catch (error) {
@@ -41,15 +40,10 @@ const Auth = () => {
 
   const signInWithFacebook = async () => {
     try {
-      // Get the current domain (either preview URL or local development)
-      const redirectUrl = window.location.origin.includes('localhost') 
-        ? 'https://preview--scorecast-live-streamer.lovable.app/auth'
-        : window.location.origin + '/auth';
-
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
-          redirectTo: redirectUrl,
+          redirectTo: 'https://preview--scorecast-live-streamer.lovable.app/auth',
         },
       });
 

@@ -19,6 +19,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // Define the app URL - consistent across the app
+  const appUrl = 'https://preview--scorecast-live-streamer.lovable.app';
 
   useEffect(() => {
     // Set up auth state listener first
@@ -35,7 +38,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         if (event === 'SIGNED_OUT') {
-          window.location.href = 'https://preview--scorecast-live-streamer.lovable.app/auth';
+          // Always use full URL for redirects
+          window.location.href = `${appUrl}/auth`;
         }
       }
     );
@@ -48,7 +52,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       // If no session and not on auth page, redirect to auth
       if (!currentSession && location.pathname !== '/auth') {
-        window.location.href = 'https://preview--scorecast-live-streamer.lovable.app/auth';
+        // Always use full URL for redirects
+        window.location.href = `${appUrl}/auth`;
       }
     });
 

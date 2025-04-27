@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { toast } from 'sonner';
 
 const Auth = () => {
   const navigate = useNavigate();
+  const previewUrl = 'https://preview--scorecast-live-streamer.lovable.app/auth';
 
   // Check if we have a hash in the URL (which happens after OAuth callback)
   useEffect(() => {
@@ -43,7 +45,8 @@ const Auth = () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
-          redirectTo: 'https://preview--scorecast-live-streamer.lovable.app/auth',
+          redirectTo: previewUrl,
+          scopes: 'email',
         },
       });
 
@@ -64,6 +67,16 @@ const Auth = () => {
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-white mb-4">Welcome to SportCast</h1>
           <p className="text-sportGray">Sign in to start streaming your sports events</p>
+          {window.location.hostname === 'localhost' && (
+            <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500 rounded text-yellow-200 text-sm">
+              <p className="font-bold">⚠️ Local Development Notice</p>
+              <p>Facebook OAuth is configured for production. To avoid redirect issues:</p>
+              <ol className="list-decimal list-inside mt-2 text-left">
+                <li>Use the preview URL: {previewUrl}</li>
+                <li>Or update your Facebook Developer settings to include localhost</li>
+              </ol>
+            </div>
+          )}
         </div>
 
         <Button 

@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Facebook } from 'lucide-react';
@@ -9,20 +9,48 @@ import { toast } from 'sonner';
 const Auth = () => {
   const navigate = useNavigate();
 
+  // Check if we have a hash in the URL (which happens after OAuth callback)
+  useEffect(() => {
+    // If we have a hash in the URL, it means we're being redirected back from auth
+    const handleAuthCallback = async () => {
+      const hashParams = window.location.hash;
+      if (hashParams) {
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          
+          if (error) {
+            throw error;
+          }
+          
+          if (data?.session) {
+            // Successfully logged in - redirect to home
+            navigate('/');
+            toast.success('Successfully logged in');
+          }
+        } catch (error) {
+          console.error('Auth callback error:', error);
+          toast.error('Login failed', {
+            description: 'Please try again or contact support if the problem persists.'
+          });
+        }
+      }
+    };
+
+    handleAuthCallback();
+  }, [navigate]);
+
   const signInWithFacebook = async () => {
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
-          // Removed problematic scope
-          redirectTo: window.location.origin,
+          redirectTo: window.location.origin + '/auth', // Redirect back to the auth page
         },
       });
 
       if (error) throw error;
       
-      // Redirect happens automatically after successful login
-      // No need to navigate manually here as the auth state change will handle it
+      // Redirect happens automatically
     } catch (error) {
       console.error('Facebook auth error:', error);
       toast.error('Login failed', {

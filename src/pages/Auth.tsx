@@ -92,7 +92,7 @@ const Auth = () => {
           By continuing, you agree to SportCast's <a href="/terms" className="underline hover:text-white">Terms of Service</a> and <a href="/privacy" className="underline hover:text-white">Privacy Policy</a>
         </p>
         <p className="mt-6 text-sm text-sportGray/60 text-center">
-          Developed by: Marco Marvin L. Rado, DIT
+          Owned and Developed by: Marco Marvin L. Rado, DIT
         </p>
       </div>
     </div>

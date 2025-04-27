@@ -41,10 +41,15 @@ const Auth = () => {
 
   const signInWithFacebook = async () => {
     try {
+      // Get the current domain (either preview URL or local development)
+      const redirectUrl = window.location.origin.includes('localhost') 
+        ? 'https://preview--scorecast-live-streamer.lovable.app/auth'
+        : window.location.origin + '/auth';
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'facebook',
         options: {
-          redirectTo: window.location.origin + '/auth', // Redirect back to the auth page
+          redirectTo: redirectUrl,
         },
       });
 

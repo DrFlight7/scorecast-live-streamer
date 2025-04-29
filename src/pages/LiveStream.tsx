@@ -1,14 +1,14 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw, Youtube } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QRCodeSVG } from 'qrcode.react';
+import { useAuth } from '@/context/auth';
 
 const LiveStream = () => {
   const navigate = useNavigate();
@@ -30,6 +30,12 @@ const LiveStream = () => {
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const [showCameraTip, setShowCameraTip] = useState(false);
+  const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const { user } = useAuth();
+  
+  // Check if user signed in with YouTube/Google
+  const isYouTubeUser = user?.app_metadata?.provider === 'google';
   
   // Clear last scored effect after a delay
   useEffect(() => {
@@ -55,8 +61,19 @@ const LiveStream = () => {
       setShowCameraTip(true);
     }, 5000);
     
+    // For YouTube users, show the YouTube stream dialog
+    if (isYouTubeUser) {
+      const youtubeTimer = setTimeout(() => {
+        setYoutubeDialogOpen(true);
+      }, 2000);
+      return () => {
+        clearTimeout(tipTimer);
+        clearTimeout(youtubeTimer);
+      };
+    }
+    
     return () => clearTimeout(tipTimer);
-  }, []);
+  }, [isYouTubeUser]);
   
   const handleHomeScoreChange = (amount: number) => {
     const newScore = Math.max(0, homeTeam.score + amount);
@@ -211,6 +228,18 @@ const LiveStream = () => {
               <Smartphone className="mr-1 h-4 w-4" />
               Remote
             </Button>
+            
+            {isYouTubeUser && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-black/30 bg-red-600/30"
+                onClick={() => setYoutubeDialogOpen(true)}
+              >
+                <Youtube className="mr-1 h-4 w-4" />
+                YouTube
+              </Button>
+            )}
           </div>
         </div>
         
@@ -257,6 +286,22 @@ const LiveStream = () => {
               Note: This is a demo feature. Remote control functionality would be implemented in a full version.
             </p>
           </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* YouTube Live Stream Dialog */}
+      <Dialog open={youtubeDialogOpen} onOpenChange={setYoutubeDialogOpen}>
+        <DialogContent className="bg-sportNavy text-white border-sportGray/20 max-w-md">
+          <DialogHeader>
+            <DialogTitle>YouTube Live Stream</DialogTitle>
+            <DialogDescription className="text-sportGray/80">
+              Stream your game directly to your YouTube channel
+            </DialogDescription>
+          </DialogHeader>
+          <YouTubeStreamManager 
+            videoElement={videoRef}
+            onStreamStarted={() => setYoutubeDialogOpen(false)}
+          />
         </DialogContent>
       </Dialog>
       

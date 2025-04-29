@@ -9,9 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { useAuth } from '@/components/AuthProvider';
+import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 
 const StreamSetup = () => {
   const navigate = useNavigate();
+  const { user, session } = useAuth();
   
   const [homeTeam, setHomeTeam] = useState({
     name: 'Home Team',
@@ -26,6 +29,9 @@ const StreamSetup = () => {
   const [streamPlatform, setStreamPlatform] = useState('youtube');
   const [streamKey, setStreamKey] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
+  
+  // Check if user signed in with YouTube/Google
+  const isYouTubeUser = user?.app_metadata?.provider === 'google';
   
   const handleStartStream = () => {
     // For demo purposes, we'll validate but not actually send the RTMP stream
@@ -88,57 +94,61 @@ const StreamSetup = () => {
           </TabsContent>
           
           <TabsContent value="stream" className="mt-2 space-y-6">
-            <div className="bg-white/10 p-4 rounded-lg">
-              <h3 className="text-xl font-bold mb-4 text-white">Stream Settings</h3>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="platform" className="text-white">Platform</Label>
-                  <Select
-                    value={streamPlatform}
-                    onValueChange={setStreamPlatform}
-                  >
-                    <SelectTrigger id="platform" className="bg-white/20 text-white border-white/30">
-                      <SelectValue placeholder="Select platform" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="youtube">YouTube</SelectItem>
-                      <SelectItem value="facebook">Facebook</SelectItem>
-                      <SelectItem value="twitch">Twitch</SelectItem>
-                      <SelectItem value="custom">Custom RTMP</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+            {isYouTubeUser ? (
+              <YouTubeStreamManager />
+            ) : (
+              <div className="bg-white/10 p-4 rounded-lg">
+                <h3 className="text-xl font-bold mb-4 text-white">Stream Settings</h3>
                 
-                {streamPlatform === 'custom' && (
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="streamUrl" className="text-white">RTMP URL</Label>
-                    <Input
-                      id="streamUrl"
-                      value={streamUrl}
-                      onChange={(e) => setStreamUrl(e.target.value)}
-                      className="bg-white/20 text-white border-white/30"
-                      placeholder="rtmp://your-streaming-url"
-                    />
+                    <Label htmlFor="platform" className="text-white">Platform</Label>
+                    <Select
+                      value={streamPlatform}
+                      onValueChange={setStreamPlatform}
+                    >
+                      <SelectTrigger id="platform" className="bg-white/20 text-white border-white/30">
+                        <SelectValue placeholder="Select platform" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="youtube">YouTube</SelectItem>
+                        <SelectItem value="facebook">Facebook</SelectItem>
+                        <SelectItem value="twitch">Twitch</SelectItem>
+                        <SelectItem value="custom">Custom RTMP</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
-                
-                <div className="space-y-2">
-                  <Label htmlFor="streamKey" className="text-white">Stream Key</Label>
-                  <Input
-                    id="streamKey"
-                    value={streamKey}
-                    onChange={(e) => setStreamKey(e.target.value)}
-                    className="bg-white/20 text-white border-white/30"
-                    placeholder="Your stream key"
-                    type="password"
-                  />
-                  <p className="text-xs text-white/60">
-                    *For this demo, the stream key isn't required
-                  </p>
+                  
+                  {streamPlatform === 'custom' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="streamUrl" className="text-white">RTMP URL</Label>
+                      <Input
+                        id="streamUrl"
+                        value={streamUrl}
+                        onChange={(e) => setStreamUrl(e.target.value)}
+                        className="bg-white/20 text-white border-white/30"
+                        placeholder="rtmp://your-streaming-url"
+                      />
+                    </div>
+                  )}
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="streamKey" className="text-white">Stream Key</Label>
+                    <Input
+                      id="streamKey"
+                      value={streamKey}
+                      onChange={(e) => setStreamKey(e.target.value)}
+                      className="bg-white/20 text-white border-white/30"
+                      placeholder="Your stream key"
+                      type="password"
+                    />
+                    <p className="text-xs text-white/60">
+                      *For this demo, the stream key isn't required
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
             
             <div className="bg-white/10 p-4 rounded-lg">
               <h3 className="text-xl font-bold mb-4 text-white">Simulated Stream</h3>

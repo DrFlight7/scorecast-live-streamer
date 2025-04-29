@@ -70,8 +70,8 @@ const Auth = () => {
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            // Include YouTube scope to access YouTube data
-            scope: 'email profile https://www.googleapis.com/auth/youtube.readonly',
+            // Include YouTube scope to access YouTube data and live streaming capabilities
+            scope: 'email profile https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.force-ssl',
           },
         },
       });

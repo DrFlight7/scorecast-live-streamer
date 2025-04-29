@@ -8,7 +8,8 @@ import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QRCodeSVG } from 'qrcode.react';
-import { useAuth } from '@/context/auth';
+import { useAuth } from '@/components/AuthProvider';
+import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 
 const LiveStream = () => {
   const navigate = useNavigate();

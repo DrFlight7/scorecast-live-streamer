@@ -24,6 +24,7 @@ const YouTubeStreamManager = ({
   const [isLoading, setIsLoading] = useState(false);
   const [broadcastId, setBroadcastId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showGoogleVerificationWarning, setShowGoogleVerificationWarning] = useState(true);
 
   // Check for existing live broadcasts when component mounts
   useEffect(() => {
@@ -141,6 +142,23 @@ const YouTubeStreamManager = ({
         </Alert>
       )}
       
+      {showGoogleVerificationWarning && (
+        <Alert className="bg-yellow-900/50 border-yellow-500">
+          <AlertDescription className="text-yellow-200">
+            <p className="mb-2"><strong>App Verification Status</strong></p>
+            <p>Your app is currently in testing mode with Google. Advanced YouTube features like live streaming require verification.</p>
+            <p className="mt-2">For development, we're using a demo mode.</p>
+            <Button 
+              variant="outline"
+              className="mt-2 border-yellow-500 hover:bg-yellow-500/20 text-yellow-200"
+              onClick={() => setShowGoogleVerificationWarning(false)}
+            >
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      
       {session?.provider_token ? (
         <>
           {!isStreaming ? (
@@ -150,7 +168,7 @@ const YouTubeStreamManager = ({
               className="w-full bg-[#FF0000] hover:bg-[#FF0000]/80 text-white"
             >
               <Play className="mr-2 h-5 w-5" />
-              {isLoading ? "Setting up..." : "Go Live on YouTube"}
+              {isLoading ? "Setting up..." : "Go Live on YouTube (Demo)"}
             </Button>
           ) : (
             <Button
@@ -168,7 +186,7 @@ const YouTubeStreamManager = ({
             <div className="bg-red-900/20 p-2 rounded-md border border-red-500/50">
               <p className="text-sm text-white flex items-center">
                 <span className="h-2 w-2 bg-red-500 rounded-full animate-pulse mr-2"></span>
-                Live on YouTube
+                Live on YouTube (Demo Mode)
               </p>
             </div>
           )}

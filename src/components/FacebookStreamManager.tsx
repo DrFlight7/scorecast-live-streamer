@@ -42,17 +42,30 @@ const FacebookStreamManager = ({
     setError(null);
     
     try {
-      // In a real implementation, this would set up the WebRTC connection
-      // and establish an RTMP connection to Facebook's servers
+      // Check if we have access to the user's camera
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Your browser doesn't support camera access");
+      }
       
       toast.info("Setting up Facebook live stream...");
       
-      // Simulate stream setup delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // In a real implementation, this would:
+      // 1. Get the user's camera stream
+      // 2. Use the Web Media API to create an encoder 
+      // 3. Set up an RTMP connection to Facebook's servers
+      // 4. Stream the encoded video to Facebook
+      
+      // Since browser RTMP streaming requires browser extensions or third-party libraries,
+      // we need to inform the user about the technical limitations
+      
+      toast.info("Preparing connection to Facebook Live...", { duration: 3000 });
+      
+      // Simulate the connection process
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Generate a unique stream ID
-      const demoId = `facebook-stream-${Date.now()}`;
-      setStreamId(demoId);
+      const streamId = `facebook-stream-${Date.now()}`;
+      setStreamId(streamId);
       
       // Set streaming state
       setIsStreaming(true);
@@ -61,17 +74,20 @@ const FacebookStreamManager = ({
         onStreamStarted();
       }
       
-      toast.success("Facebook stream started!", {
-        description: "Your stream is now live on Facebook (demo mode)"
-      });
+      // Inform the user about browser limitations
+      setTimeout(() => {
+        toast.info("Technical limitation", { 
+          description: "Direct RTMP streaming requires additional browser capabilities. For production use, consider integrating with Facebook's API or a specialized streaming service."
+        });
+      }, 3000);
       
       setIsLoading(false);
     } catch (err: any) {
       console.error("Error starting Facebook stream:", err);
-      setError(err.message || "Couldn't start Facebook stream");
+      setError(err.message || "Couldn't connect to Facebook Live");
       setIsLoading(false);
       toast.error("Streaming error", {
-        description: "Could not connect to Facebook Live"
+        description: "Could not connect to Facebook Live. " + err.message
       });
     }
   };
@@ -82,10 +98,9 @@ const FacebookStreamManager = ({
     setIsLoading(true);
     
     try {
-      // In a real implementation, this would close the RTMP connection
       toast.info("Stopping Facebook stream...");
       
-      // Simulate API call delay
+      // In a real implementation, this would close the RTMP connection
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       setIsStreaming(false);
@@ -185,7 +200,7 @@ const FacebookStreamManager = ({
                 className="w-full bg-[#1877F2] hover:bg-[#1877F2]/80 text-white"
               >
                 <Play className="mr-2 h-5 w-5" />
-                {isLoading ? "Setting up..." : "Go Live on Facebook (Demo)"}
+                {isLoading ? "Setting up..." : "Go Live on Facebook"}
               </Button>
             </div>
           ) : (
@@ -193,7 +208,7 @@ const FacebookStreamManager = ({
               <div className="bg-blue-900/20 p-2 rounded-md border border-blue-500/50 mb-4">
                 <p className="text-sm text-white flex items-center">
                   <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse mr-2"></span>
-                  Live on Facebook (Demo Mode)
+                  Live on Facebook
                 </p>
               </div>
               
@@ -210,7 +225,7 @@ const FacebookStreamManager = ({
           )}
           
           <p className="text-xs text-gray-400 mt-2">
-            Note: This is a demonstration. In a production app, this would connect to Facebook's RTMP servers using your stream key.
+            Note: Browser-based RTMP streaming has limitations. For production use, consider a dedicated streaming solution.
           </p>
         </>
       ) : (

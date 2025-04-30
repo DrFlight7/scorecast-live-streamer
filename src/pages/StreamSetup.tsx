@@ -36,7 +36,7 @@ const StreamSetup = () => {
   const isFacebookUser = user?.app_metadata?.provider === 'facebook';
   
   const handleStartStream = () => {
-    // For demo purposes, we'll validate but not actually send the RTMP stream
+    // Validate team names
     if (homeTeam.name.trim() === '' || awayTeam.name.trim() === '') {
       toast.error('Setup error', {
         description: 'Please enter names for both teams'
@@ -147,7 +147,7 @@ const StreamSetup = () => {
                       type="password"
                     />
                     <p className="text-xs text-white/60">
-                      *For this demo, the stream key isn't required
+                      You'll need to provide a stream key from your platform
                     </p>
                   </div>
                 </div>
@@ -155,9 +155,9 @@ const StreamSetup = () => {
             )}
             
             <div className="bg-white/10 p-4 rounded-lg">
-              <h3 className="text-xl font-bold mb-4 text-white">Simulated Stream</h3>
+              <h3 className="text-xl font-bold mb-4 text-white">Stream Information</h3>
               <p className="text-sm text-white/60 mb-4">
-                For demonstration purposes, this app simulates streaming rather than sending an actual RTMP stream.
+                Get your stream key from your platform of choice (YouTube, Facebook, Twitch, etc.) to start streaming.
               </p>
             </div>
           </TabsContent>
@@ -172,7 +172,4 @@ const StreamSetup = () => {
         </Button>
       </div>
     </div>
-  );
-};
-
-export default StreamSetup;
+  

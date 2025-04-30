@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
+import FacebookStreamManager from '@/components/FacebookStreamManager';
 
 const StreamSetup = () => {
   const navigate = useNavigate();
@@ -30,8 +31,9 @@ const StreamSetup = () => {
   const [streamKey, setStreamKey] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
   
-  // Check if user signed in with YouTube/Google
+  // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
+  const isFacebookUser = user?.app_metadata?.provider === 'facebook';
   
   const handleStartStream = () => {
     // For demo purposes, we'll validate but not actually send the RTMP stream
@@ -96,6 +98,8 @@ const StreamSetup = () => {
           <TabsContent value="stream" className="mt-2 space-y-6">
             {isYouTubeUser ? (
               <YouTubeStreamManager />
+            ) : isFacebookUser ? (
+              <FacebookStreamManager />
             ) : (
               <div className="bg-white/10 p-4 rounded-lg">
                 <h3 className="text-xl font-bold mb-4 text-white">Stream Settings</h3>

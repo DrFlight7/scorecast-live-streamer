@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw, Youtube } from 'lucide-react';
+import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw, Youtube, Facebook } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
+import FacebookStreamManager from '@/components/FacebookStreamManager';
 
 const LiveStream = () => {
   const navigate = useNavigate();
@@ -32,12 +33,14 @@ const LiveStream = () => {
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
   const [showCameraTip, setShowCameraTip] = useState(false);
   const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
+  const [facebookDialogOpen, setFacebookDialogOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const { user } = useAuth();
   
-  // Check if user signed in with YouTube/Google
+  // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
-  
+  const isFacebookUser = user?.app_metadata?.provider === 'facebook';
+
   // Clear last scored effect after a delay
   useEffect(() => {
     if (lastScored) {
@@ -73,8 +76,19 @@ const LiveStream = () => {
       };
     }
     
+    // For Facebook users, show the Facebook stream dialog
+    if (isFacebookUser) {
+      const facebookTimer = setTimeout(() => {
+        setFacebookDialogOpen(true);
+      }, 2000);
+      return () => {
+        clearTimeout(tipTimer);
+        clearTimeout(facebookTimer);
+      };
+    }
+    
     return () => clearTimeout(tipTimer);
-  }, [isYouTubeUser]);
+  }, [isYouTubeUser, isFacebookUser]);
   
   const handleHomeScoreChange = (amount: number) => {
     const newScore = Math.max(0, homeTeam.score + amount);
@@ -241,6 +255,18 @@ const LiveStream = () => {
                 YouTube
               </Button>
             )}
+
+            {isFacebookUser && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:bg-black/30 bg-blue-600/30"
+                onClick={() => setFacebookDialogOpen(true)}
+              >
+                <Facebook className="mr-1 h-4 w-4" />
+                Facebook
+              </Button>
+            )}
           </div>
         </div>
         
@@ -302,6 +328,22 @@ const LiveStream = () => {
           <YouTubeStreamManager 
             videoElement={videoRef}
             onStreamStarted={() => setYoutubeDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Facebook Live Stream Dialog */}
+      <Dialog open={facebookDialogOpen} onOpenChange={setFacebookDialogOpen}>
+        <DialogContent className="bg-sportNavy text-white border-sportGray/20 max-w-md">
+          <DialogHeader>
+            <DialogTitle>Facebook Live Stream</DialogTitle>
+            <DialogDescription className="text-sportGray/80">
+              Stream your game directly to your Facebook account
+            </DialogDescription>
+          </DialogHeader>
+          <FacebookStreamManager 
+            videoElement={videoRef}
+            onStreamStarted={() => setFacebookDialogOpen(false)}
           />
         </DialogContent>
       </Dialog>

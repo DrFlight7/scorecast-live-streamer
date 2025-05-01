@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Camera, CameraOff, RefreshCw } from 'lucide-react';
@@ -29,7 +30,7 @@ const LivestreamView = ({
   lastScored,
   className
 }: LivestreamViewProps) => {
-  const { videoRef, isEnabled, error, isAttempting, retryCamera } = useCamera();
+  const { videoRef, isEnabled, error, isAttempting, startCamera } = useCamera();
   const [streamIndicator, setStreamIndicator] = React.useState(0);
 
   React.useEffect(() => {
@@ -61,7 +62,7 @@ const LivestreamView = ({
             <p className="text-xl font-bold">Camera not available</p>
             <p className="mb-4">{error || "Please enable camera permissions"}</p>
             <button 
-              onClick={retryCamera}
+              onClick={startCamera}
               className="bg-sportRed hover:bg-sportRed/80 text-white py-2 px-4 rounded-full flex items-center justify-center gap-2"
               disabled={isAttempting}
             >

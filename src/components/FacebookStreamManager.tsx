@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -109,7 +108,6 @@ const FacebookStreamManager = ({
       // Stop streaming via the relay server
       await relayControls.stopStream();
       
-      setIsStreaming(false);
       setStreamId(null);
       
       if (onStreamStopped) {

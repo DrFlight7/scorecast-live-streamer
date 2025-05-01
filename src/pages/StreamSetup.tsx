@@ -172,4 +172,7 @@ const StreamSetup = () => {
         </Button>
       </div>
     </div>
-  
+  );
+};
+
+export default StreamSetup;

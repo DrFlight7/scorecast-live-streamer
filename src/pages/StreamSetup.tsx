@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, PlayCircle } from 'lucide-react';
+import { ArrowLeft, PlayCircle, Info } from 'lucide-react';
 import TeamSetup from '@/components/TeamSetup';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,12 @@ import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 import FacebookStreamManager from '@/components/FacebookStreamManager';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 const StreamSetup = () => {
   const navigate = useNavigate();
@@ -156,9 +162,29 @@ const StreamSetup = () => {
             
             <div className="bg-white/10 p-4 rounded-lg">
               <h3 className="text-xl font-bold mb-4 text-white">Stream Information</h3>
-              <p className="text-sm text-white/60 mb-4">
-                Get your stream key from your platform of choice (YouTube, Facebook, Twitch, etc.) to start streaming.
-              </p>
+              
+              <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="architecture" className="border-white/20">
+                  <AccordionTrigger className="text-white hover:text-white/80">
+                    <div className="flex items-center">
+                      <Info className="mr-2 h-4 w-4" />
+                      How Live Streaming Works
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="text-white/70 text-sm">
+                    <p className="mb-2">Our streaming solution uses a multi-step process:</p>
+                    <ol className="list-decimal pl-5 space-y-1">
+                      <li>Your browser captures camera video using WebRTC</li>
+                      <li>The video is sent to our secure relay server</li>
+                      <li>Our server converts the stream to the RTMP format</li>
+                      <li>The stream is delivered to platforms like Facebook Live</li>
+                    </ol>
+                    <p className="mt-2 text-xs text-white/60">
+                      Note: Browser-based streaming has limitations. For professional use, consider using OBS Studio.
+                    </p>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
           </TabsContent>
         </Tabs>

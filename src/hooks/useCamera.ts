@@ -2,25 +2,67 @@
 import { useRef, useState, useEffect } from 'react';
 import { toast } from "sonner";
 
-export const useCamera = () => {
+interface UseCameraOptions {
+  audio?: boolean;
+  video?: {
+    width?: number;
+    height?: number;
+    frameRate?: number;
+    facingMode?: 'user' | 'environment';
+  };
+  autostart?: boolean;
+}
+
+interface UseCameraState {
+  isEnabled: boolean;
+  isAttempting: boolean;
+  error: string | null;
+  stream: MediaStream | null;
+}
+
+interface UseCameraResult extends UseCameraState {
+  videoRef: React.RefObject<HTMLVideoElement>;
+  startCamera: () => Promise<boolean>;
+  stopCamera: () => void;
+  switchCamera: () => Promise<boolean>;
+  takeSnapshot: () => string | null;
+}
+
+export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
+  const {
+    audio = false,
+    video = {
+      width: 1280,
+      height: 720,
+      frameRate: 30,
+      facingMode: 'user'
+    },
+    autostart = true
+  } = options;
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [isEnabled, setIsEnabled] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isAttempting, setIsAttempting] = useState(false);
+  const [state, setState] = useState<UseCameraState>({
+    isEnabled: false,
+    isAttempting: false,
+    error: null,
+    stream: null
+  });
+
   const setupAttempted = useRef(false);
   const retryCount = useRef(0);
   const maxRetries = 3;
 
-  const initializeCamera = async () => {
-    if (isAttempting || !videoRef.current) {
-      console.log("Skipping initialization - already attempting or no video element");
-      return;
+  // Function to start the camera
+  const startCamera = async (): Promise<boolean> => {
+    if (state.isAttempting) {
+      console.log("Already attempting to start camera");
+      return false;
     }
     
+    setState(prev => ({ ...prev, isAttempting: true, error: null }));
+    
     try {
-      console.log("Starting camera initialization, attempt:", retryCount.current + 1);
-      setIsAttempting(true);
-      setError(null);
+      console.log("Starting camera with constraints:", { audio, video });
 
       // Check if camera devices exist
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -34,37 +76,41 @@ export const useCamera = () => {
         throw new Error("Camera API not available");
       }
 
-      // Simple constraints to start with
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-      });
-
+      // Get user media with the specified constraints
+      const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
       console.log("Camera permission granted, got stream");
 
       // Stop any existing streams
-      if (videoRef.current.srcObject) {
+      if (videoRef.current?.srcObject) {
         const oldStream = videoRef.current.srcObject as MediaStream;
         oldStream.getTracks().forEach(track => track.stop());
       }
 
       // Set new stream
-      videoRef.current.srcObject = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
       
-      // Wait for metadata to load before playing
-      await new Promise((resolve) => {
-        if (!videoRef.current) return;
-        videoRef.current.onloadedmetadata = resolve;
-      });
+        // Wait for metadata to load before playing
+        await new Promise<void>((resolve) => {
+          if (!videoRef.current) return resolve();
+          videoRef.current.onloadedmetadata = () => resolve();
+        });
 
-      console.log("Video metadata loaded, attempting playback");
-      await videoRef.current.play();
+        console.log("Video metadata loaded, attempting playback");
+        await videoRef.current.play();
+      }
       
       console.log("Camera successfully initialized");
-      setIsEnabled(true);
-      setError(null);
+      setState({
+        isEnabled: true,
+        isAttempting: false,
+        error: null,
+        stream
+      });
+      
       retryCount.current = 0;
       toast.success("Camera connected");
+      return true;
     } catch (err: any) {
       console.error("Camera initialization failed:", err);
       let message = "Could not access camera. ";
@@ -79,63 +125,107 @@ export const useCamera = () => {
         message += err.message || "Please check permissions and try again.";
       }
       
-      setError(message);
+      setState(prev => ({
+        ...prev, 
+        isEnabled: false,
+        isAttempting: false,
+        error: message
+      }));
+      
       toast.error("Camera error", { description: message });
 
       // Implement retry logic
       if (retryCount.current < maxRetries) {
         retryCount.current++;
         console.log(`Retrying camera initialization in 2 seconds (attempt ${retryCount.current})`);
+        
         setTimeout(() => {
-          setIsAttempting(false);
-          initializeCamera();
+          startCamera();
         }, 2000);
+        
+        return false;
       }
-    } finally {
-      if (retryCount.current >= maxRetries) {
-        setIsAttempting(false);
-      }
+      
+      return false;
     }
   };
 
-  const retryCamera = () => {
-    console.log("Manual retry of camera initialization...");
-    retryCount.current = 0;
-    setIsEnabled(false);
-    setError(null);
-    setIsAttempting(false);
-    initializeCamera();
+  // Function to stop the camera
+  const stopCamera = (): void => {
+    if (state.stream) {
+      state.stream.getTracks().forEach(track => {
+        console.log("Stopping track:", track.kind);
+        track.stop();
+      });
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    setState({
+      isEnabled: false,
+      isAttempting: false,
+      error: null,
+      stream: null
+    });
+  };
+
+  // Function to switch between front and back cameras
+  const switchCamera = async (): Promise<boolean> => {
+    const currentFacingMode = video.facingMode || 'user';
+    const newFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    
+    stopCamera();
+    
+    video.facingMode = newFacingMode;
+    return startCamera();
+  };
+
+  // Function to take a snapshot from the current video feed
+  const takeSnapshot = (): string | null => {
+    if (!videoRef.current || !state.isEnabled) return null;
+    
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg');
+    } catch (err) {
+      console.error("Error taking snapshot:", err);
+      return null;
+    }
   };
 
   // Initialize on mount with a delay to ensure DOM is ready
   useEffect(() => {
-    if (!setupAttempted.current) {
+    if (autostart && !setupAttempted.current) {
       setupAttempted.current = true;
       const timer = setTimeout(() => {
-        initializeCamera();
+        startCamera();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [autostart]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (videoRef.current?.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => {
-          console.log("Stopping track:", track.kind);
-          track.stop();
-        });
-      }
+      stopCamera();
     };
   }, []);
 
   return {
+    ...state,
     videoRef,
-    isEnabled,
-    error,
-    isAttempting,
-    retryCamera
+    startCamera,
+    stopCamera,
+    switchCamera,
+    takeSnapshot
   };
 };

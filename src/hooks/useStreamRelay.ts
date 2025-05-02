@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -95,6 +96,34 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       }));
     }
   }, [state.isStreaming, state.stats.startTime]);
+
+  // Function to stop streaming - defined earlier to avoid circular reference
+  const stopStream = useCallback(async (): Promise<boolean> => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      try {
+        if (!socketRef.current) {
+          resolve(false);
+          return;
+        }
+        
+        socketRef.current.send(JSON.stringify({
+          type: 'stream-stop',
+        }));
+        
+        // In a real implementation, we would wait for confirmation
+        // For now, we'll resolve immediately and let the message handler update the state
+        streamKeyRef.current = null;
+        resolve(true);
+      } catch (err) {
+        console.error('Error stopping stream:', err);
+        resolve(false);
+      }
+    });
+  }, []);
 
   // Function to connect to the WebSocket server
   const connect = useCallback(async (): Promise<boolean> => {
@@ -322,34 +351,6 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       }
     });
   }, [connect]);
-
-  // Function to stop streaming
-  const stopStream = useCallback(async (): Promise<boolean> => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-
-    return new Promise((resolve) => {
-      try {
-        if (!socketRef.current) {
-          resolve(false);
-          return;
-        }
-        
-        socketRef.current.send(JSON.stringify({
-          type: 'stream-stop',
-        }));
-        
-        // In a real implementation, we would wait for confirmation
-        // For now, we'll resolve immediately and let the message handler update the state
-        streamKeyRef.current = null;
-        resolve(true);
-      } catch (err) {
-        console.error('Error stopping stream:', err);
-        resolve(false);
-      }
-    });
-  }, []);
 
   // Function to send binary data through the WebSocket
   const sendBinaryData = useCallback((data: Blob) => {

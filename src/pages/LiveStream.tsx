@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Camera, Pause, Play, StopCircle, Smartphone, RefreshCw, Youtube, Facebook } from 'lucide-react';
+import { ArrowLeft, Camera, Pause, Play, Smartphone, RefreshCw, Youtube, Facebook } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 import FacebookStreamManager from '@/components/FacebookStreamManager';
+import { useCamera } from '@/hooks/useCamera';
 
 const LiveStream = () => {
   const navigate = useNavigate();
@@ -34,7 +36,24 @@ const LiveStream = () => {
   const [showCameraTip, setShowCameraTip] = useState(false);
   const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
   const [facebookDialogOpen, setFacebookDialogOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Set up camera with audio enabled for streaming
+  const {
+    videoRef,
+    isEnabled: isCameraEnabled,
+    stream: mediaStream,
+    startCamera,
+    getMediaStream
+  } = useCamera({
+    audio: true,
+    video: {
+      width: 1280,
+      height: 720,
+      frameRate: 30,
+      facingMode: 'user'
+    }
+  });
+  
   const { user } = useAuth();
   
   // Check if user signed in with YouTube/Google or Facebook
@@ -146,7 +165,7 @@ const LiveStream = () => {
           height: { ideal: 720 },
           facingMode: "user"
         }, 
-        audio: false 
+        audio: true
       });
       
       // Stop tracks right away as we just wanted to check permissions
@@ -179,6 +198,15 @@ const LiveStream = () => {
     window.location.reload();
   };
   
+  const handleFacebookStreamStarted = () => {
+    toast.success("Facebook Live stream started!");
+    setFacebookDialogOpen(false);
+  };
+  
+  const handleFacebookStreamStopped = () => {
+    toast.info("Facebook Live stream ended");
+  };
+  
   // Generate a fake remote control URL for demonstration purposes
   const remoteControlUrl = `https://sportcast.app/remote/${Math.random().toString(36).substring(2, 8)}`;
   
@@ -201,7 +229,7 @@ const LiveStream = () => {
             size="sm"
             className="text-white hover:bg-black/30"
             onClick={() => {
-              if (confirm("Are you sure you want to end the stream?")) {
+              if (window.confirm("Are you sure you want to end the stream?")) {
                 handleEndStream();
               }
             }}
@@ -271,7 +299,7 @@ const LiveStream = () => {
         </div>
         
         {/* Camera troubleshooting tip */}
-        {showCameraTip && (
+        {showCameraTip && !isCameraEnabled && (
           <div className="absolute bottom-4 right-4 max-w-xs">
             <Alert variant="destructive" className="bg-white/90 border-sportRed">
               <AlertDescription className="text-black text-xs">
@@ -343,7 +371,9 @@ const LiveStream = () => {
           </DialogHeader>
           <FacebookStreamManager 
             videoElement={videoRef}
-            onStreamStarted={() => setFacebookDialogOpen(false)}
+            mediaStream={mediaStream}
+            onStreamStarted={handleFacebookStreamStarted}
+            onStreamStopped={handleFacebookStreamStopped}
           />
         </DialogContent>
       </Dialog>
@@ -354,7 +384,7 @@ const LiveStream = () => {
           <DialogHeader>
             <DialogTitle>Camera Access Required</DialogTitle>
             <DialogDescription className="text-sportGray/80">
-              SportCast needs access to your camera to stream. Please allow camera access when prompted.
+              SportCast needs access to your camera and microphone to stream. Please allow camera and audio access when prompted.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center p-4">

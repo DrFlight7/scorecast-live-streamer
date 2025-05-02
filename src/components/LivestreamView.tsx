@@ -30,7 +30,15 @@ const LivestreamView = ({
   lastScored,
   className
 }: LivestreamViewProps) => {
-  const { videoRef, isEnabled, error, isAttempting, startCamera } = useCamera();
+  const { videoRef, isEnabled, error, isAttempting, startCamera } = useCamera({
+    audio: true, // Enable audio for streaming
+    video: {
+      width: 1280,
+      height: 720,
+      frameRate: 30,
+      facingMode: "user"
+    }
+  });
   const [streamIndicator, setStreamIndicator] = React.useState(0);
 
   React.useEffect(() => {

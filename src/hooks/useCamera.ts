@@ -11,6 +11,7 @@ interface UseCameraOptions {
     facingMode?: 'user' | 'environment';
   };
   autostart?: boolean;
+  quality?: 'low' | 'medium' | 'high';
 }
 
 interface UseCameraState {
@@ -26,18 +27,20 @@ interface UseCameraResult extends UseCameraState {
   stopCamera: () => void;
   switchCamera: () => Promise<boolean>;
   takeSnapshot: () => string | null;
+  getMediaStream: () => MediaStream | null;
 }
 
 export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
   const {
-    audio = false,
+    audio = true, // Default to true for streaming purposes
     video = {
       width: 1280,
       height: 720,
       frameRate: 30,
       facingMode: 'user'
     },
-    autostart = true
+    autostart = true,
+    quality = 'medium'
   } = options;
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -52,6 +55,31 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
   const retryCount = useRef(0);
   const maxRetries = 3;
 
+  // Adjust video constraints based on quality setting
+  const getVideoConstraints = () => {
+    const baseConstraints = { ...video };
+    
+    switch (quality) {
+      case 'low':
+        return {
+          ...baseConstraints,
+          width: 640,
+          height: 480,
+          frameRate: 15
+        };
+      case 'high':
+        return {
+          ...baseConstraints,
+          width: 1920,
+          height: 1080,
+          frameRate: 30
+        };
+      case 'medium':
+      default:
+        return baseConstraints;
+    }
+  };
+
   // Function to start the camera
   const startCamera = async (): Promise<boolean> => {
     if (state.isAttempting) {
@@ -62,7 +90,8 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
     setState(prev => ({ ...prev, isAttempting: true, error: null }));
     
     try {
-      console.log("Starting camera with constraints:", { audio, video });
+      const videoConstraints = getVideoConstraints();
+      console.log("Starting camera with constraints:", { audio, video: videoConstraints });
 
       // Check if camera devices exist
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -77,7 +106,10 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
       }
 
       // Get user media with the specified constraints
-      const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio, 
+        video: videoConstraints 
+      });
       console.log("Camera permission granted, got stream");
 
       // Stop any existing streams
@@ -202,6 +234,11 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
     }
   };
 
+  // Function to get the raw media stream for external use (like WebRTC or MediaRecorder)
+  const getMediaStream = (): MediaStream | null => {
+    return state.stream;
+  };
+
   // Initialize on mount with a delay to ensure DOM is ready
   useEffect(() => {
     if (autostart && !setupAttempted.current) {
@@ -226,6 +263,7 @@ export const useCamera = (options: UseCameraOptions = {}): UseCameraResult => {
     startCamera,
     stopCamera,
     switchCamera,
-    takeSnapshot
+    takeSnapshot,
+    getMediaStream
   };
 };

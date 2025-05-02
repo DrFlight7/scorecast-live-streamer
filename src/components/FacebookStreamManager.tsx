@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Play, StopCircle, Facebook, LinkIcon, Video, Copy, Check, RefreshCw, Settings } from 'lucide-react';
+import { Play, StopCircle, Facebook, LinkIcon, Video, Copy, Check, RefreshCw, Settings, Mic, MicOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -10,15 +11,18 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useStreamRelay } from '@/hooks/useStreamRelay';
 import { Progress } from '@/components/ui/progress';
+import { useMediaRecorder } from '@/hooks/useMediaRecorder';
 
 interface FacebookStreamManagerProps {
   videoElement?: React.RefObject<HTMLVideoElement>;
+  mediaStream?: MediaStream | null;
   onStreamStarted?: () => void;
   onStreamStopped?: () => void;
 }
 
 const FacebookStreamManager = ({
   videoElement,
+  mediaStream,
   onStreamStarted,
   onStreamStopped
 }: FacebookStreamManagerProps) => {
@@ -30,10 +34,32 @@ const FacebookStreamManager = ({
   const [copied, setCopied] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [quality, setQuality] = useState('720p');
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [streamTimer, setStreamTimer] = useState(0);
+  const timerRef = useRef<number | null>(null);
 
   const [relayState, relayControls] = useStreamRelay({
     autoReconnect: true,
     maxReconnectAttempts: 5
+  });
+  
+  // Set up media recorder if we have a media stream
+  const { 
+    startRecording, 
+    stopRecording, 
+    isRecording,
+  } = useMediaRecorder({
+    stream: mediaStream,
+    timeslice: 1000, // 1 second chunks
+    onDataAvailable: (blob) => {
+      // Send video data to WebSocket server
+      if (relayState.isStreaming) {
+        relayControls.sendBinaryData(blob);
+      }
+    },
+    onError: (err) => {
+      toast.error("Recording error", { description: err.message });
+    }
   });
   
   const rtmpUrl = 'rtmps://live-api-s.facebook.com:443/rtmp/';
@@ -47,6 +73,40 @@ const FacebookStreamManager = ({
       relayControls.disconnect();
     };
   }, []);
+  
+  // Start/stop timer when streaming status changes
+  useEffect(() => {
+    if (relayState.isStreaming) {
+      // Start timer
+      setStreamTimer(0);
+      timerRef.current = setInterval(() => {
+        setStreamTimer(prev => prev + 1);
+      }, 1000) as unknown as number;
+    } else {
+      // Stop timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setStreamTimer(0);
+    }
+    
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [relayState.isStreaming]);
+  
+  // Format time for display
+  const formatTime = (seconds: number): string => {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
   
   const startStreaming = async () => {
     if (!streamKey.trim()) {
@@ -78,6 +138,11 @@ const FacebookStreamManager = ({
         const streamId = `facebook-stream-${Date.now()}`;
         setStreamId(streamId);
         
+        // Start media recorder if we have a stream
+        if (mediaStream) {
+          startRecording();
+        }
+        
         if (onStreamStarted) {
           onStreamStarted();
         }
@@ -104,6 +169,11 @@ const FacebookStreamManager = ({
     
     try {
       toast.info("Stopping Facebook stream...");
+      
+      // Stop media recorder
+      if (isRecording) {
+        stopRecording();
+      }
       
       // Stop streaming via the relay server
       await relayControls.stopStream();
@@ -134,6 +204,21 @@ const FacebookStreamManager = ({
     toast.success("RTMP URL copied to clipboard");
     
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Toggle audio
+  const toggleAudio = () => {
+    setAudioEnabled(!audioEnabled);
+    
+    // If we have a media stream, toggle audio tracks
+    if (mediaStream) {
+      const audioTracks = mediaStream.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !audioEnabled;
+      });
+      
+      toast.info(audioEnabled ? "Audio muted" : "Audio enabled");
+    }
   };
 
   // Computed property to determine if we're streaming
@@ -270,7 +355,11 @@ const FacebookStreamManager = ({
                   
                   <div className="flex items-center justify-between">
                     <Label htmlFor="enableAudio" className="text-white">Enable Audio</Label>
-                    <Switch id="enableAudio" defaultChecked />
+                    <Switch 
+                      id="enableAudio" 
+                      checked={audioEnabled}
+                      onCheckedChange={toggleAudio}
+                    />
                   </div>
                 </div>
               )}
@@ -306,7 +395,7 @@ const FacebookStreamManager = ({
                     Live on Facebook
                   </p>
                   <span className="text-xs text-white/60">
-                    Duration: 00:05:23
+                    Duration: {formatTime(streamTimer)}
                   </span>
                 </div>
                 
@@ -322,6 +411,25 @@ const FacebookStreamManager = ({
                       <span>85%</span>
                     </div>
                     <Progress value={85} className="h-1" />
+                  </div>
+                  
+                  <div className="flex items-center justify-between mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-white/70 border-white/20"
+                      onClick={toggleAudio}
+                    >
+                      {audioEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                      {audioEnabled ? "Mute" : "Unmute"}
+                    </Button>
+                    
+                    <div className="flex items-center space-x-1">
+                      <div className="w-1 h-4 bg-green-500 animate-pulse rounded-sm"></div>
+                      <div className="w-1 h-6 bg-green-500 animate-pulse rounded-sm"></div>
+                      <div className="w-1 h-5 bg-green-500 animate-pulse rounded-sm"></div>
+                      <div className="w-1 h-3 bg-green-500 animate-pulse rounded-sm"></div>
+                    </div>
                   </div>
                 </div>
               </div>

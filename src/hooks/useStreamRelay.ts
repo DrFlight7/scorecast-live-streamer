@@ -5,6 +5,7 @@ export interface StreamRelayOptions {
   autoReconnect?: boolean;
   maxReconnectAttempts?: number;
   reconnectInterval?: number;
+  wsEndpoint?: string;
 }
 
 export interface StreamRelayState {
@@ -12,6 +13,12 @@ export interface StreamRelayState {
   isStreaming: boolean;
   status: 'idle' | 'connecting' | 'connected' | 'streaming' | 'error' | 'disconnected';
   error: string | null;
+  stats: {
+    bytesSent: number;
+    dataChunks: number;
+    startTime: number | null;
+    duration: number;
+  };
 }
 
 export interface StreamRelayControls {
@@ -19,6 +26,7 @@ export interface StreamRelayControls {
   disconnect: () => void;
   startStream: (streamKey: string) => Promise<boolean>;
   stopStream: () => Promise<boolean>;
+  sendBinaryData: (data: Blob) => void;
 }
 
 export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelayState, StreamRelayControls] => {
@@ -26,6 +34,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     autoReconnect = true,
     maxReconnectAttempts = 5,
     reconnectInterval = 5000,
+    wsEndpoint,
   } = options;
 
   const [state, setState] = useState<StreamRelayState>({
@@ -33,12 +42,19 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     isStreaming: false,
     status: 'idle',
     error: null,
+    stats: {
+      bytesSent: 0,
+      dataChunks: 0,
+      startTime: null,
+      duration: 0
+    }
   });
 
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const streamKeyRef = useRef<string | null>(null);
+  const statsTimerRef = useRef<number | null>(null);
 
   // CleanUp function to handle socket closing
   const cleanUp = useCallback(() => {
@@ -60,7 +76,25 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
     }
+
+    if (statsTimerRef.current) {
+      clearInterval(statsTimerRef.current);
+      statsTimerRef.current = null;
+    }
   }, []);
+
+  // Function to update stats during streaming
+  const updateStats = useCallback(() => {
+    if (state.isStreaming && state.stats.startTime) {
+      setState(prev => ({
+        ...prev,
+        stats: {
+          ...prev.stats,
+          duration: Math.floor((Date.now() - prev.stats.startTime!) / 1000)
+        }
+      }));
+    }
+  }, [state.isStreaming, state.stats.startTime]);
 
   // Function to connect to the WebSocket server
   const connect = useCallback(async (): Promise<boolean> => {
@@ -68,8 +102,8 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     setState(prev => ({ ...prev, status: 'connecting', error: null }));
 
     try {
-      // In production, this would use the deployed Edge Function URL
-      const wsUrl = `wss://owvyvalwbbyrbzxlwjeq.supabase.co/functions/v1/stream-relay`;
+      // Use the provided endpoint or fall back to the default Supabase Edge Function
+      const wsUrl = wsEndpoint || `wss://owvyvalwbbyrbzxlwjeq.supabase.co/functions/v1/stream-relay`;
       
       console.log('Connecting to WebSocket server:', wsUrl);
       const socket = new WebSocket(wsUrl);
@@ -98,6 +132,11 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             isStreaming: false,
             status: 'disconnected',
           }));
+
+          if (statsTimerRef.current) {
+            clearInterval(statsTimerRef.current);
+            statsTimerRef.current = null;
+          }
 
           if (wasConnected) {
             toast.error("Stream connection lost", {
@@ -139,41 +178,76 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
 
         socket.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
-            console.log('WebSocket message received:', data);
-            
-            // Handle different message types
-            switch (data.type) {
-              case 'connection':
-                if (data.status === 'connected') {
-                  // Send a ping every 30 seconds to keep the connection alive
-                  setInterval(() => {
-                    if (socketRef.current?.readyState === WebSocket.OPEN) {
-                      socketRef.current.send(JSON.stringify({ type: 'ping' }));
+            // Handle text messages (control messages)
+            if (typeof event.data === 'string') {
+              const data = JSON.parse(event.data);
+              console.log('WebSocket message received:', data);
+              
+              // Handle different message types
+              switch (data.type) {
+                case 'connection':
+                  if (data.status === 'connected') {
+                    // Send a ping every 30 seconds to keep the connection alive
+                    setInterval(() => {
+                      if (socketRef.current?.readyState === WebSocket.OPEN) {
+                        socketRef.current.send(JSON.stringify({ type: 'ping' }));
+                      }
+                    }, 30000);
+                  }
+                  break;
+                  
+                case 'stream-status':
+                  if (data.status === 'live') {
+                    setState(prev => ({ 
+                      ...prev, 
+                      isStreaming: true, 
+                      status: 'streaming',
+                      stats: {
+                        ...prev.stats,
+                        startTime: Date.now(),
+                        duration: 0
+                      }
+                    }));
+                    
+                    // Start stats update timer
+                    statsTimerRef.current = setInterval(updateStats, 1000) as unknown as number;
+                    
+                    toast.success("Stream started", { 
+                      description: "Your Facebook stream is now live" 
+                    });
+                  } else if (data.status === 'stopped') {
+                    setState(prev => ({ 
+                      ...prev, 
+                      isStreaming: false, 
+                      status: 'connected',
+                      stats: {
+                        ...prev.stats,
+                        startTime: null,
+                        duration: 0
+                      }
+                    }));
+                    
+                    if (statsTimerRef.current) {
+                      clearInterval(statsTimerRef.current);
+                      statsTimerRef.current = null;
                     }
-                  }, 30000);
-                }
-                break;
-                
-              case 'stream-status':
-                if (data.status === 'live') {
-                  setState(prev => ({ ...prev, isStreaming: true, status: 'streaming' }));
-                  toast.success("Stream started", { 
-                    description: "Your Facebook stream is now live" 
+                    
+                    toast.info("Stream ended", { 
+                      description: "Your Facebook stream has been stopped" 
+                    });
+                  }
+                  break;
+                  
+                case 'error':
+                  toast.error("Streaming error", { 
+                    description: data.message || "An unknown error occurred" 
                   });
-                } else if (data.status === 'stopped') {
-                  setState(prev => ({ ...prev, isStreaming: false, status: 'connected' }));
-                  toast.info("Stream ended", { 
-                    description: "Your Facebook stream has been stopped" 
-                  });
-                }
-                break;
-                
-              case 'error':
-                toast.error("Streaming error", { 
-                  description: data.message || "An unknown error occurred" 
-                });
-                break;
+                  break;
+              }
+            } 
+            // Handle binary messages (acknowledgements or other binary data)
+            else {
+              console.log('Received binary data');
             }
           } catch (err) {
             console.error('Error parsing WebSocket message:', err);
@@ -189,7 +263,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       }));
       return false;
     }
-  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected]);
+  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint]);
 
   // Function to disconnect from the WebSocket server
   const disconnect = useCallback(() => {
@@ -199,7 +273,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     
     setState(prev => ({ ...prev, status: 'disconnected' }));
     cleanUp();
-  }, [cleanUp, state.isStreaming]);
+  }, [cleanUp, state.isStreaming, stopStream]);
 
   // Function to start streaming
   const startStream = useCallback(async (streamKey: string): Promise<boolean> => {
@@ -223,6 +297,17 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         socketRef.current.send(JSON.stringify({
           type: 'stream-start',
           streamKey: streamKey,
+        }));
+        
+        // Reset stats
+        setState(prev => ({
+          ...prev,
+          stats: {
+            bytesSent: 0,
+            dataChunks: 0,
+            startTime: null,
+            duration: 0
+          }
         }));
         
         // In a real implementation, we would wait for confirmation
@@ -266,6 +351,30 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     });
   }, []);
 
+  // Function to send binary data through the WebSocket
+  const sendBinaryData = useCallback((data: Blob) => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || !state.isStreaming) {
+      console.warn('Cannot send data: socket is not open or not streaming');
+      return;
+    }
+
+    try {
+      socketRef.current.send(data);
+      
+      // Update stats
+      setState(prev => ({
+        ...prev,
+        stats: {
+          ...prev.stats,
+          bytesSent: prev.stats.bytesSent + data.size,
+          dataChunks: prev.stats.dataChunks + 1
+        }
+      }));
+    } catch (err) {
+      console.error('Error sending binary data:', err);
+    }
+  }, [state.isStreaming]);
+
   // Clean up on unmount
   useEffect(() => {
     return cleanUp;
@@ -273,6 +382,6 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
 
   return [
     state,
-    { connect, disconnect, startStream, stopStream }
+    { connect, disconnect, startStream, stopStream, sendBinaryData }
   ];
 };

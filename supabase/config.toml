@@ -3,3 +3,4 @@ project_id = "owvyvalwbbyrbzxlwjeq"
 
 [functions.stream-relay]
 verify_jwt = false
+

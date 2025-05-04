@@ -130,10 +130,10 @@ const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl
   const getLatencyRating = () => {
     if (!latency) return null;
     
-    if (latency < 100) return { text: 'Excellent', color: 'green-500' };
-    if (latency < 300) return { text: 'Good', color: 'green-400' };
-    if (latency < 600) return { text: 'Fair', color: 'yellow-500' };
-    return { text: 'Poor', color: 'red-500' };
+    if (latency < 100) return { text: 'Excellent', color: 'text-green-500 bg-green-500' };
+    if (latency < 300) return { text: 'Good', color: 'text-green-400 bg-green-400' };
+    if (latency < 600) return { text: 'Fair', color: 'text-yellow-500 bg-yellow-500' };
+    return { text: 'Poor', color: 'text-red-500 bg-red-500' };
   };
   
   const latencyRating = getLatencyRating();
@@ -198,14 +198,14 @@ const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl
             <div className="text-xs text-white/60">Latency</div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-white">{latency}ms</span>
-              <span className={`text-xs text-${latencyRating?.color}`}>
+              <span className={`text-xs ${latencyRating?.color.split(' ')[0]}`}>
                 {latencyRating?.text}
               </span>
             </div>
             <Progress 
               value={latency < 600 ? 100 - ((latency / 600) * 100) : 0} 
               className="h-1 mt-1"
-              indicatorClassName={`bg-${latencyRating?.color}`}
+              indicatorClassName={latencyRating?.color.split(' ')[1]}
             />
           </div>
         )}

@@ -3,9 +3,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Camera, Pause, Play, Smartphone, RefreshCw, Youtube, Facebook } from 'lucide-react';
+import { ArrowLeft, Camera, Pause, Play, Smartphone, RefreshCw, Youtube, Facebook, Server } from 'lucide-react';
 import LivestreamView from '@/components/LivestreamView';
 import ScoreControls from '@/components/ScoreControls';
+import StreamingServerStatus from '@/components/StreamingServerStatus';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QRCodeSVG } from 'qrcode.react';
@@ -36,6 +37,8 @@ const LiveStream = () => {
   const [showCameraTip, setShowCameraTip] = useState(false);
   const [youtubeDialogOpen, setYoutubeDialogOpen] = useState(false);
   const [facebookDialogOpen, setFacebookDialogOpen] = useState(false);
+  const [serverStatusDialogOpen, setServerStatusDialogOpen] = useState(false);
+  const [streamStats, setStreamStats] = useState<{health?: string; viewers?: number}>({});
   
   // Set up camera with audio enabled for streaming
   const {
@@ -83,6 +86,23 @@ const LiveStream = () => {
     const tipTimer = setTimeout(() => {
       setShowCameraTip(true);
     }, 5000);
+    
+    // Check Railway server status on mount
+    fetch('https://scorecast-live-streamer-production.up.railway.app/health')
+      .then(response => {
+        if (!response.ok) {
+          toast.warning("Railway streaming server may be offline", {
+            description: "This could affect Facebook streaming functionality",
+            action: {
+              label: "Check Status",
+              onClick: () => setServerStatusDialogOpen(true)
+            }
+          });
+        }
+      })
+      .catch(err => {
+        console.error("Error checking Railway server:", err);
+      });
     
     // For YouTube users, show the YouTube stream dialog
     if (isYouTubeUser) {
@@ -199,12 +219,23 @@ const LiveStream = () => {
   };
   
   const handleFacebookStreamStarted = () => {
-    toast.success("Facebook Live stream started!");
+    toast.success("Facebook Live stream started via Railway!");
     setFacebookDialogOpen(false);
+    
+    // Set some streaming stats for UI
+    setStreamStats({
+      health: 'good',
+      viewers: 0
+    });
   };
   
   const handleFacebookStreamStopped = () => {
     toast.info("Facebook Live stream ended");
+    setStreamStats({});
+  };
+  
+  const handleServerStatusCheck = () => {
+    setServerStatusDialogOpen(true);
   };
   
   // Generate a fake remote control URL for demonstration purposes
@@ -220,6 +251,7 @@ const LiveStream = () => {
           period={period}
           isStreaming={isStreaming && !isPaused}
           lastScored={lastScored}
+          streamStats={streamStats}
         />
         
         {/* Top controls bar */}
@@ -270,6 +302,16 @@ const LiveStream = () => {
             >
               <Smartphone className="mr-1 h-4 w-4" />
               Remote
+            </Button>
+            
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="text-white hover:bg-black/30"
+              onClick={handleServerStatusCheck}
+            >
+              <Server className="mr-1 h-4 w-4" />
+              Server
             </Button>
             
             {isYouTubeUser && (
@@ -366,7 +408,7 @@ const LiveStream = () => {
           <DialogHeader>
             <DialogTitle>Facebook Live Stream</DialogTitle>
             <DialogDescription className="text-sportGray/80">
-              Stream your game directly to your Facebook account
+              Stream your game directly to your Facebook account via Railway
             </DialogDescription>
           </DialogHeader>
           <FacebookStreamManager 
@@ -375,6 +417,19 @@ const LiveStream = () => {
             onStreamStarted={handleFacebookStreamStarted}
             onStreamStopped={handleFacebookStreamStopped}
           />
+        </DialogContent>
+      </Dialog>
+      
+      {/* Railway Server Status Dialog */}
+      <Dialog open={serverStatusDialogOpen} onOpenChange={setServerStatusDialogOpen}>
+        <DialogContent className="bg-sportNavy text-white border-sportGray/20 max-w-md">
+          <DialogHeader>
+            <DialogTitle>Railway Server Status</DialogTitle>
+            <DialogDescription className="text-sportGray/80">
+              Check the status of the Railway FFmpeg server for production streaming
+            </DialogDescription>
+          </DialogHeader>
+          <StreamingServerStatus serverUrl="https://scorecast-live-streamer-production.up.railway.app" />
         </DialogContent>
       </Dialog>
       

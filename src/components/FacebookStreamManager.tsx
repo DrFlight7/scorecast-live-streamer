@@ -2,7 +2,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Play, StopCircle, Facebook, LinkIcon, Video, Copy, Check, RefreshCw, Settings, Mic, MicOff } from 'lucide-react';
+import { 
+  Play, 
+  StopCircle, 
+  Facebook, 
+  LinkIcon, 
+  Copy, 
+  Check, 
+  RefreshCw, 
+  Settings, 
+  Mic, 
+  MicOff, 
+  Server,
+  Wifi
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import { Input } from '@/components/ui/input';
@@ -12,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useStreamRelay } from '@/hooks/useStreamRelay';
 import { Progress } from '@/components/ui/progress';
 import { useMediaRecorder } from '@/hooks/useMediaRecorder';
+import { Badge } from '@/components/ui/badge';
 
 interface FacebookStreamManagerProps {
   videoElement?: React.RefObject<HTMLVideoElement>;
@@ -36,11 +50,15 @@ const FacebookStreamManager = ({
   const [quality, setQuality] = useState('720p');
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [streamTimer, setStreamTimer] = useState(0);
+  const [isCheckingServer, setIsCheckingServer] = useState(false);
+  const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'unknown'>('unknown');
   const timerRef = useRef<number | null>(null);
 
+  // Initialize with the Railway server endpoint
   const [relayState, relayControls] = useStreamRelay({
     autoReconnect: true,
-    maxReconnectAttempts: 5
+    maxReconnectAttempts: 5,
+    wsEndpoint: 'wss://scorecast-live-streamer-production.up.railway.app/stream'
   });
   
   // Set up media recorder if we have a media stream
@@ -65,9 +83,9 @@ const FacebookStreamManager = ({
   const rtmpUrl = 'rtmps://live-api-s.facebook.com:443/rtmp/';
   const streamKeyHintUrl = 'https://www.facebook.com/live/producer';
 
-  // Connect to relay server on mount
+  // Check server status on mount and connect if available
   useEffect(() => {
-    relayControls.connect();
+    checkServerStatus();
     
     return () => {
       relayControls.disconnect();
@@ -108,6 +126,29 @@ const FacebookStreamManager = ({
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
   
+  // Check if the Railway FFmpeg server is online
+  const checkServerStatus = async () => {
+    setIsCheckingServer(true);
+    
+    try {
+      const isOnline = await relayControls.checkServerStatus();
+      setServerStatus(isOnline ? 'online' : 'offline');
+      
+      if (!isOnline) {
+        setError('Railway streaming server is offline. Please try again later.');
+      } else {
+        setError(null);
+        // If server is online, try to connect
+        relayControls.connect();
+      }
+    } catch (err) {
+      setServerStatus('offline');
+      setError('Could not check Railway streaming server status.');
+    } finally {
+      setIsCheckingServer(false);
+    }
+  };
+  
   const startStreaming = async () => {
     if (!streamKey.trim()) {
       toast.error("Stream key required", { 
@@ -120,13 +161,19 @@ const FacebookStreamManager = ({
     setError(null);
     
     try {
-      toast.info("Setting up Facebook live stream...");
+      toast.info("Setting up Facebook live stream via Railway...");
+      
+      // Check server status first
+      const isOnline = await relayControls.checkServerStatus();
+      if (!isOnline) {
+        throw new Error("Railway streaming server is offline");
+      }
       
       // Connect to WebSocket relay server if not already connected
       if (!relayState.isConnected) {
         const connected = await relayControls.connect();
         if (!connected) {
-          throw new Error("Could not connect to streaming server");
+          throw new Error("Could not connect to Railway streaming server");
         }
       }
       
@@ -153,7 +200,7 @@ const FacebookStreamManager = ({
       setIsLoading(false);
     } catch (err: any) {
       console.error("Error starting Facebook stream:", err);
-      setError(err.message || "Couldn't connect to Facebook Live");
+      setError(err.message || "Couldn't connect to Facebook Live via Railway");
       setIsLoading(false);
       
       toast.error("Streaming error", {
@@ -238,12 +285,26 @@ const FacebookStreamManager = ({
   const getConnectionStatusText = () => {
     switch (relayState.status) {
       case 'idle': return 'Not Connected';
-      case 'connecting': return 'Connecting...';
-      case 'connected': return 'Connected to Server';
+      case 'connecting': return 'Connecting to Railway...';
+      case 'connected': return 'Connected to Railway Server';
       case 'streaming': return 'Live on Facebook';
       case 'error': return 'Connection Error';
       case 'disconnected': return 'Disconnected';
       default: return 'Unknown';
+    }
+  };
+  
+  // Get stream health indicator
+  const getStreamHealthColor = () => {
+    const health = relayState.stats.streamHealth;
+    if (!health) return 'bg-gray-500';
+    
+    switch (health) {
+      case 'excellent': return 'bg-green-500';
+      case 'good': return 'bg-green-400';
+      case 'fair': return 'bg-yellow-500';
+      case 'poor': return 'bg-red-500';
+      default: return 'bg-gray-500';
     }
   };
 
@@ -254,6 +315,38 @@ const FacebookStreamManager = ({
         <div className="flex items-center space-x-2">
           <div className={`h-2 w-2 rounded-full ${getConnectionStatusColor()}`}></div>
           <span className="text-xs text-white/70">{getConnectionStatusText()}</span>
+        </div>
+      </div>
+      
+      {/* Railway Server Status */}
+      <div className="flex items-center justify-between bg-black/30 p-2 rounded-md">
+        <div className="flex items-center space-x-2">
+          <Server size={16} className="text-white/70" />
+          <span className="text-sm text-white">Railway FFmpeg Server</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          {serverStatus === 'unknown' ? (
+            <Badge variant="outline" className="bg-gray-500/30 text-white">
+              Unknown
+            </Badge>
+          ) : serverStatus === 'online' ? (
+            <Badge variant="outline" className="bg-green-500/30 text-white">
+              Online
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="bg-red-500/30 text-white">
+              Offline
+            </Badge>
+          )}
+          <Button 
+            size="icon" 
+            variant="ghost" 
+            className="h-6 w-6 rounded-full" 
+            onClick={checkServerStatus}
+            disabled={isCheckingServer}
+          >
+            <RefreshCw size={14} className={isCheckingServer ? 'animate-spin' : ''} />
+          </Button>
         </div>
       </div>
       
@@ -368,16 +461,16 @@ const FacebookStreamManager = ({
                 {!relayState.isConnected ? (
                   <Button
                     onClick={() => relayControls.connect()}
-                    disabled={isLoading}
+                    disabled={isLoading || serverStatus === 'offline'}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                   >
-                    <RefreshCw className={`mr-2 h-5 w-5 ${relayState.status === 'connecting' ? 'animate-spin' : ''}`} />
-                    Connect to Streaming Server
+                    <Server className={`mr-2 h-5 w-5 ${relayState.status === 'connecting' ? 'animate-spin' : ''}`} />
+                    Connect to Railway Server
                   </Button>
                 ) : (
                   <Button
                     onClick={startStreaming}
-                    disabled={isLoading || !streamKey}
+                    disabled={isLoading || !streamKey || serverStatus === 'offline'}
                     className="w-full bg-[#1877F2] hover:bg-[#1877F2]/80 text-white"
                   >
                     <Play className="mr-2 h-5 w-5" />
@@ -392,7 +485,7 @@ const FacebookStreamManager = ({
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm text-white flex items-center">
                     <span className="h-2 w-2 bg-blue-500 rounded-full animate-pulse mr-2"></span>
-                    Live on Facebook
+                    Live on Facebook via Railway
                   </p>
                   <span className="text-xs text-white/60">
                     Duration: {formatTime(streamTimer)}
@@ -402,15 +495,39 @@ const FacebookStreamManager = ({
                 <div className="space-y-2">
                   <div className="flex justify-between text-xs text-white/70">
                     <span>Status:</span>
-                    <span className="text-green-400">Excellent</span>
+                    <span className={`text-${relayState.stats.streamHealth === 'excellent' || relayState.stats.streamHealth === 'good' ? 'green' : relayState.stats.streamHealth === 'fair' ? 'yellow' : 'red'}-400`}>
+                      {relayState.stats.streamHealth || 'Unknown'}
+                    </span>
                   </div>
                   
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs text-white/70">
                       <span>Signal Strength:</span>
-                      <span>85%</span>
+                      <span>
+                        {relayState.stats.streamHealth === 'excellent' ? '95%' : 
+                         relayState.stats.streamHealth === 'good' ? '85%' : 
+                         relayState.stats.streamHealth === 'fair' ? '60%' : '40%'}
+                      </span>
                     </div>
-                    <Progress value={85} className="h-1" />
+                    <Progress 
+                      value={relayState.stats.streamHealth === 'excellent' ? 95 : 
+                             relayState.stats.streamHealth === 'good' ? 85 : 
+                             relayState.stats.streamHealth === 'fair' ? 60 : 40} 
+                      className="h-1" 
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="bg-black/30 p-2 rounded">
+                      <div className="text-xs text-white/60">FFmpeg Status</div>
+                      <div className="text-sm text-white">{relayState.stats.ffmpegStatus || 'Unknown'}</div>
+                    </div>
+                    <div className="bg-black/30 p-2 rounded">
+                      <div className="text-xs text-white/60">Data Sent</div>
+                      <div className="text-sm text-white">
+                        {(relayState.stats.bytesSent / (1024 * 1024)).toFixed(2)} MB
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="flex items-center justify-between mt-2">
@@ -424,11 +541,14 @@ const FacebookStreamManager = ({
                       {audioEnabled ? "Mute" : "Unmute"}
                     </Button>
                     
-                    <div className="flex items-center space-x-1">
-                      <div className="w-1 h-4 bg-green-500 animate-pulse rounded-sm"></div>
-                      <div className="w-1 h-6 bg-green-500 animate-pulse rounded-sm"></div>
-                      <div className="w-1 h-5 bg-green-500 animate-pulse rounded-sm"></div>
-                      <div className="w-1 h-3 bg-green-500 animate-pulse rounded-sm"></div>
+                    <div className="flex items-center">
+                      <Wifi size={16} className="text-white/60 mr-1" />
+                      <div className="flex items-center space-x-1">
+                        <div className="w-1 h-4 bg-green-500 animate-pulse rounded-sm"></div>
+                        <div className="w-1 h-6 bg-green-500 animate-pulse rounded-sm"></div>
+                        <div className="w-1 h-5 bg-green-500 animate-pulse rounded-sm"></div>
+                        <div className="w-1 h-3 bg-green-500 animate-pulse rounded-sm"></div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -446,9 +566,10 @@ const FacebookStreamManager = ({
             </>
           )}
           
-          <p className="text-xs text-gray-400 mt-2">
-            Note: For production use, consider using a dedicated streaming solution like OBS Studio with a Facebook RTMP link.
-          </p>
+          <div className="text-xs text-gray-400 mt-2 flex items-center justify-center">
+            <Server size={12} className="inline mr-1" />
+            Streaming through Railway FFmpeg server at scorecast-live-streamer-production.up.railway.app
+          </div>
         </>
       ) : (
         <div className="text-center p-4">

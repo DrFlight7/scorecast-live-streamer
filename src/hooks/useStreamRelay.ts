@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -19,6 +18,8 @@ export interface StreamRelayState {
     dataChunks: number;
     startTime: number | null;
     duration: number;
+    ffmpegStatus?: string;
+    streamHealth?: 'excellent' | 'good' | 'fair' | 'poor';
   };
 }
 
@@ -28,14 +29,18 @@ export interface StreamRelayControls {
   startStream: (streamKey: string) => Promise<boolean>;
   stopStream: () => Promise<boolean>;
   sendBinaryData: (data: Blob) => void;
+  checkServerStatus: () => Promise<boolean>;
 }
+
+// Endpoint for the Railway FFmpeg server
+const DEFAULT_RELAY_ENDPOINT = 'wss://scorecast-live-streamer-production.up.railway.app/stream';
 
 export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelayState, StreamRelayControls] => {
   const {
     autoReconnect = true,
     maxReconnectAttempts = 5,
     reconnectInterval = 5000,
-    wsEndpoint,
+    wsEndpoint = DEFAULT_RELAY_ENDPOINT,
   } = options;
 
   const [state, setState] = useState<StreamRelayState>({
@@ -47,7 +52,9 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       bytesSent: 0,
       dataChunks: 0,
       startTime: null,
-      duration: 0
+      duration: 0,
+      ffmpegStatus: undefined,
+      streamHealth: undefined
     }
   });
 
@@ -56,6 +63,8 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   const reconnectTimerRef = useRef<number | null>(null);
   const streamKeyRef = useRef<string | null>(null);
   const statsTimerRef = useRef<number | null>(null);
+  const heartbeatTimerRef = useRef<number | null>(null);
+  const lastPingTimeRef = useRef<number | null>(null);
 
   // CleanUp function to handle socket closing
   const cleanUp = useCallback(() => {
@@ -82,6 +91,11 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       clearInterval(statsTimerRef.current);
       statsTimerRef.current = null;
     }
+    
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
   }, []);
 
   // Function to update stats during streaming
@@ -97,7 +111,24 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     }
   }, [state.isStreaming, state.stats.startTime]);
 
-  // Function to stop streaming - defined earlier to avoid circular reference
+  // Function to send a ping and measure latency
+  const sendHeartbeat = useCallback(() => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    
+    try {
+      lastPingTimeRef.current = Date.now();
+      socketRef.current.send(JSON.stringify({
+        type: 'ping',
+        timestamp: lastPingTimeRef.current
+      }));
+    } catch (err) {
+      console.error('Error sending heartbeat:', err);
+    }
+  }, []);
+
+  // Function to stop streaming
   const stopStream = useCallback(async (): Promise<boolean> => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       return false;
@@ -125,22 +156,44 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     });
   }, []);
 
+  // Function to check if the Railway FFmpeg server is available
+  const checkServerStatus = useCallback(async (): Promise<boolean> => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      // Send a simple HTTP request to check if the server is up
+      const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health', {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Server status check response:', data);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error checking server status:', err);
+      return false;
+    }
+  }, []);
+
   // Function to connect to the WebSocket server
   const connect = useCallback(async (): Promise<boolean> => {
     cleanUp();
     setState(prev => ({ ...prev, status: 'connecting', error: null }));
 
     try {
-      // Use the provided endpoint or fall back to the default Supabase Edge Function
-      const wsUrl = wsEndpoint || `wss://owvyvalwbbyrbzxlwjeq.supabase.co/functions/v1/stream-relay`;
-      
-      console.log('Connecting to WebSocket server:', wsUrl);
-      const socket = new WebSocket(wsUrl);
+      console.log('Connecting to Railway WebSocket server:', wsEndpoint);
+      const socket = new WebSocket(wsEndpoint);
       socketRef.current = socket;
 
       return new Promise((resolve) => {
         socket.onopen = () => {
-          console.log('WebSocket connection established');
+          console.log('WebSocket connection to Railway server established');
           setState(prev => ({ 
             ...prev, 
             isConnected: true, 
@@ -148,11 +201,17 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             error: null 
           }));
           reconnectAttemptsRef.current = 0;
+          
+          // Start heartbeat to keep connection alive and measure latency
+          heartbeatTimerRef.current = setInterval(() => {
+            sendHeartbeat();
+          }, 15000) as unknown as number;
+          
           resolve(true);
         };
 
         socket.onclose = (event) => {
-          console.log('WebSocket connection closed:', event);
+          console.log('Railway WebSocket connection closed:', event);
           const wasConnected = state.isConnected;
           
           setState(prev => ({ 
@@ -165,6 +224,11 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
           if (statsTimerRef.current) {
             clearInterval(statsTimerRef.current);
             statsTimerRef.current = null;
+          }
+          
+          if (heartbeatTimerRef.current) {
+            clearInterval(heartbeatTimerRef.current);
+            heartbeatTimerRef.current = null;
           }
 
           if (wasConnected) {
@@ -197,10 +261,10 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         };
 
         socket.onerror = (error) => {
-          console.error('WebSocket error:', error);
+          console.error('Railway WebSocket error:', error);
           setState(prev => ({ 
             ...prev, 
-            error: 'Connection error' 
+            error: 'Connection error with Railway streaming server' 
           }));
           resolve(false);
         };
@@ -210,18 +274,13 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             // Handle text messages (control messages)
             if (typeof event.data === 'string') {
               const data = JSON.parse(event.data);
-              console.log('WebSocket message received:', data);
+              console.log('Railway WebSocket message received:', data);
               
               // Handle different message types
               switch (data.type) {
                 case 'connection':
                   if (data.status === 'connected') {
-                    // Send a ping every 30 seconds to keep the connection alive
-                    setInterval(() => {
-                      if (socketRef.current?.readyState === WebSocket.OPEN) {
-                        socketRef.current.send(JSON.stringify({ type: 'ping' }));
-                      }
-                    }, 30000);
+                    toast.success("Connected to Railway streaming server");
                   }
                   break;
                   
@@ -234,7 +293,9 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                       stats: {
                         ...prev.stats,
                         startTime: Date.now(),
-                        duration: 0
+                        duration: 0,
+                        ffmpegStatus: data.ffmpegStatus || 'active',
+                        streamHealth: data.streamHealth || 'good'
                       }
                     }));
                     
@@ -252,7 +313,9 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                       stats: {
                         ...prev.stats,
                         startTime: null,
-                        duration: 0
+                        duration: 0,
+                        ffmpegStatus: undefined,
+                        streamHealth: undefined
                       }
                     }));
                     
@@ -267,32 +330,52 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                   }
                   break;
                   
+                case 'ffmpeg-status':
+                  // Update FFmpeg status from Railway server
+                  setState(prev => ({
+                    ...prev,
+                    stats: {
+                      ...prev.stats,
+                      ffmpegStatus: data.status,
+                      streamHealth: data.health
+                    }
+                  }));
+                  break;
+                  
+                case 'pong':
+                  if (lastPingTimeRef.current) {
+                    const latency = Date.now() - lastPingTimeRef.current;
+                    console.log(`Railway server latency: ${latency}ms`);
+                    lastPingTimeRef.current = null;
+                  }
+                  break;
+                  
                 case 'error':
                   toast.error("Streaming error", { 
-                    description: data.message || "An unknown error occurred" 
+                    description: data.message || "An unknown error occurred with the Railway streaming server" 
                   });
                   break;
               }
             } 
             // Handle binary messages (acknowledgements or other binary data)
             else {
-              console.log('Received binary data');
+              console.log('Received binary data from Railway server');
             }
           } catch (err) {
-            console.error('Error parsing WebSocket message:', err);
+            console.error('Error parsing Railway WebSocket message:', err);
           }
         };
       });
     } catch (err) {
-      console.error('Failed to connect to WebSocket server:', err);
+      console.error('Failed to connect to Railway WebSocket server:', err);
       setState(prev => ({ 
         ...prev, 
         status: 'error',
-        error: 'Failed to connect to streaming server' 
+        error: 'Failed to connect to Railway streaming server' 
       }));
       return false;
     }
-  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint]);
+  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint, sendHeartbeat]);
 
   // Function to disconnect from the WebSocket server
   const disconnect = useCallback(() => {
@@ -315,7 +398,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       try {
         if (!socketRef.current) {
           toast.error("Connection error", { 
-            description: "Not connected to streaming server" 
+            description: "Not connected to Railway streaming server" 
           });
           resolve(false);
           return;
@@ -326,6 +409,8 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         socketRef.current.send(JSON.stringify({
           type: 'stream-start',
           streamKey: streamKey,
+          platform: 'facebook',
+          quality: 'high' // Can be configurable from UI later
         }));
         
         // Reset stats
@@ -335,17 +420,18 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             bytesSent: 0,
             dataChunks: 0,
             startTime: null,
-            duration: 0
+            duration: 0,
+            ffmpegStatus: 'starting',
+            streamHealth: undefined
           }
         }));
         
-        // In a real implementation, we would wait for confirmation
-        // For now, we'll resolve immediately and let the message handler update the state
+        toast.info("Starting Facebook Live stream via Railway...");
         resolve(true);
       } catch (err) {
         console.error('Error starting stream:', err);
         toast.error("Failed to start stream", {
-          description: err instanceof Error ? err.message : "Unknown error"
+          description: err instanceof Error ? err.message : "Unknown error with Railway server"
         });
         resolve(false);
       }
@@ -355,7 +441,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   // Function to send binary data through the WebSocket
   const sendBinaryData = useCallback((data: Blob) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || !state.isStreaming) {
-      console.warn('Cannot send data: socket is not open or not streaming');
+      console.warn('Cannot send data: Railway socket is not open or not streaming');
       return;
     }
 
@@ -372,7 +458,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         }
       }));
     } catch (err) {
-      console.error('Error sending binary data:', err);
+      console.error('Error sending binary data to Railway:', err);
     }
   }, [state.isStreaming]);
 
@@ -381,8 +467,24 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     return cleanUp;
   }, [cleanUp]);
 
+  // Automatic server status check on mount
+  useEffect(() => {
+    const checkStatus = async () => {
+      const isAvailable = await checkServerStatus();
+      if (!isAvailable) {
+        console.warn('Railway streaming server appears to be offline');
+        setState(prev => ({ 
+          ...prev, 
+          error: 'Railway streaming server appears to be offline' 
+        }));
+      }
+    };
+    
+    checkStatus();
+  }, [checkServerStatus]);
+
   return [
     state,
-    { connect, disconnect, startStream, stopStream, sendBinaryData }
+    { connect, disconnect, startStream, stopStream, sendBinaryData, checkServerStatus }
   ];
 };

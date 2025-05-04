@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, PlayCircle, Info } from 'lucide-react';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 import FacebookStreamManager from '@/components/FacebookStreamManager';
+import StreamingServerStatus from '@/components/StreamingServerStatus';
 import {
   Accordion,
   AccordionContent,
@@ -37,9 +38,31 @@ const StreamSetup = () => {
   const [streamKey, setStreamKey] = useState('');
   const [streamUrl, setStreamUrl] = useState('');
   
+  // State to track if Railway server is available
+  const [isRailwayAvailable, setIsRailwayAvailable] = useState(false);
+  
   // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
   const isFacebookUser = user?.app_metadata?.provider === 'facebook';
+  
+  // Check Railway server status on mount
+  useEffect(() => {
+    const checkRailwayStatus = async () => {
+      try {
+        const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
+        if (response.ok) {
+          setIsRailwayAvailable(true);
+        } else {
+          setIsRailwayAvailable(false);
+        }
+      } catch (err) {
+        console.error('Railway server status check failed:', err);
+        setIsRailwayAvailable(false);
+      }
+    };
+    
+    checkRailwayStatus();
+  }, []);
   
   const handleStartStream = () => {
     // Validate team names
@@ -87,9 +110,10 @@ const StreamSetup = () => {
         <h1 className="text-2xl font-bold text-white mb-6">Stream Setup</h1>
         
         <Tabs defaultValue="teams" className="w-full">
-          <TabsList className="grid grid-cols-2 mb-4 bg-white/10">
+          <TabsList className="grid grid-cols-3 mb-4 bg-white/10">
             <TabsTrigger value="teams" className="text-white data-[state=active]:bg-sportBlue">Teams</TabsTrigger>
             <TabsTrigger value="stream" className="text-white data-[state=active]:bg-sportBlue">Stream</TabsTrigger>
+            <TabsTrigger value="server" className="text-white data-[state=active]:bg-sportBlue">Server</TabsTrigger>
           </TabsList>
           
           <TabsContent value="teams" className="mt-2">
@@ -172,19 +196,72 @@ const StreamSetup = () => {
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="text-white/70 text-sm">
-                    <p className="mb-2">Our streaming solution uses a multi-step process:</p>
+                    <p className="mb-2">Our streaming solution uses a complete end-to-end process:</p>
                     <ol className="list-decimal pl-5 space-y-1">
                       <li>Your browser captures camera video using WebRTC</li>
-                      <li>The video is sent to our secure relay server</li>
-                      <li>Our server converts the stream to the RTMP format</li>
-                      <li>The stream is delivered to platforms like Facebook Live</li>
+                      <li>The video is sent to our Railway FFmpeg server via WebSockets</li>
+                      <li>The Railway server processes the stream with FFmpeg</li>
+                      <li>FFmpeg converts and delivers the stream to Facebook Live</li>
                     </ol>
-                    <p className="mt-2 text-xs text-white/60">
-                      Note: Browser-based streaming has limitations. For professional use, consider using OBS Studio.
-                    </p>
+                    <div className="flex items-center mt-2 bg-green-900/30 border border-green-500/30 p-2 rounded">
+                      <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                      <p className="text-xs text-green-300">
+                        Production-ready streaming via Railway
+                      </p>
+                    </div>
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="server" className="mt-2 space-y-6">
+            <StreamingServerStatus serverUrl="https://scorecast-live-streamer-production.up.railway.app" />
+            
+            <div className="bg-white/10 p-4 rounded-lg space-y-4">
+              <h3 className="text-lg font-bold text-white">Production Streaming Architecture</h3>
+              
+              <div className="bg-black/30 p-3 rounded">
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span className="text-white text-sm font-medium">Railway FFmpeg Server</span>
+                </div>
+                <p className="text-sm text-white/70">
+                  Our production system uses a dedicated Railway server running FFmpeg to process and relay your streams to platforms like Facebook.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-black/30 p-3 rounded">
+                  <div className="text-xs text-white/60 mb-1">Features</div>
+                  <ul className="text-sm text-white/80 list-disc pl-4 space-y-1">
+                    <li>Real-time transcoding</li>
+                    <li>Multiple quality options</li>
+                    <li>Platform integration</li>
+                    <li>Stream monitoring</li>
+                  </ul>
+                </div>
+                
+                <div className="bg-black/30 p-3 rounded">
+                  <div className="text-xs text-white/60 mb-1">Benefits</div>
+                  <ul className="text-sm text-white/80 list-disc pl-4 space-y-1">
+                    <li>Higher stream quality</li>
+                    <li>Better reliability</li>
+                    <li>Low latency</li>
+                    <li>Bandwidth optimization</li>
+                  </ul>
+                </div>
+              </div>
+              
+              <div className="bg-black/30 p-3 rounded">
+                <div className="text-xs text-white/60 mb-1">Server Status</div>
+                <div className="flex items-center">
+                  <div className={`w-2 h-2 rounded-full ${isRailwayAvailable ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
+                  <span className="text-sm text-white">
+                    {isRailwayAvailable ? 'Railway FFmpeg server is online' : 'Railway FFmpeg server is offline'}
+                  </span>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { Camera, CameraOff, RefreshCw } from 'lucide-react';
+import { Camera, CameraOff, RefreshCw, Wifi, Video } from 'lucide-react';
 import Scoreboard from './Scoreboard';
 import { useCamera } from '@/hooks/useCamera';
 
@@ -20,6 +20,10 @@ interface LivestreamViewProps {
   isStreaming: boolean;
   lastScored?: 'home' | 'away' | null;
   className?: string;
+  streamStats?: {
+    health?: string;
+    viewers?: number;
+  };
 }
 
 const LivestreamView = ({
@@ -28,7 +32,8 @@ const LivestreamView = ({
   period,
   isStreaming,
   lastScored,
-  className
+  className,
+  streamStats
 }: LivestreamViewProps) => {
   const { videoRef, isEnabled, error, isAttempting, startCamera } = useCamera({
     audio: true, // Enable audio for streaming
@@ -100,13 +105,35 @@ const LivestreamView = ({
       </div>
       
       {isStreaming && (
-        <div className="absolute top-20 left-4 flex items-center space-x-2 bg-black/40 py-1 px-3 rounded-full">
-          <div className={cn(
-            "h-3 w-3 rounded-full", 
-            streamIndicator === 0 ? "bg-sportRed" : "bg-red-800"
-          )} />
-          <span className="text-white text-sm font-bold">LIVE</span>
-        </div>
+        <>
+          <div className="absolute top-20 left-4 flex items-center space-x-2 bg-black/40 py-1 px-3 rounded-full">
+            <div className={cn(
+              "h-3 w-3 rounded-full", 
+              streamIndicator === 0 ? "bg-sportRed" : "bg-red-800"
+            )} />
+            <span className="text-white text-sm font-bold">LIVE</span>
+          </div>
+          
+          {/* Show connection quality indicator */}
+          <div className="absolute bottom-4 right-4 bg-black/40 p-2 rounded-full">
+            <div className="flex items-center space-x-1">
+              <Wifi size={16} className="text-white" />
+              {[1, 2, 3].map((bar) => (
+                <div 
+                  key={bar}
+                  className={cn(
+                    "w-1 rounded-sm",
+                    streamStats?.health === 'excellent' ? "bg-green-500" :
+                    streamStats?.health === 'good' ? "bg-green-400" :
+                    streamStats?.health === 'fair' ? "bg-yellow-500" :
+                    "bg-gray-400",
+                    bar === 1 ? "h-2" : bar === 2 ? "h-3" : "h-4"
+                  )}
+                />
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

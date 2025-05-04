@@ -53,20 +53,44 @@ const StreamSetup = () => {
       try {
         // Try health endpoint
         const healthCheck = async () => {
-          const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
-          if (response.ok) {
-            return true;
+          try {
+            const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
+            if (response.ok) {
+              return true;
+            }
+            
+            // If we get a 400 error with WebSocket message, the server is actually online
+            if (response.status === 400) {
+              const data = await response.json();
+              if (data.error?.includes("WebSocket")) {
+                return true;
+              }
+            }
+            return false;
+          } catch (e) {
+            return false;
           }
-          return false;
         };
         
         // Try root endpoint as fallback
         const rootCheck = async () => {
-          const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/');
-          if (response.ok) {
-            return true;
+          try {
+            const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/');
+            if (response.ok) {
+              return true;
+            }
+            
+            // If we get a 400 error with WebSocket message, the server is actually online
+            if (response.status === 400) {
+              const data = await response.json();
+              if (data.error?.includes("WebSocket")) {
+                return true;
+              }
+            }
+            return false;
+          } catch (e) {
+            return false;
           }
-          return false;
         };
         
         // Try both checks

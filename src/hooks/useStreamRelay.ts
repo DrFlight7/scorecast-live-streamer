@@ -176,11 +176,38 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         return true;
       }
       
+      // If /health returns 400 with WebSocket error, the server is actually online
+      // but expecting WebSocket connections
+      if (response.status === 400) {
+        try {
+          const errorData = await response.json();
+          if (errorData.error?.includes("WebSocket")) {
+            console.log('Server is running but requires WebSocket connections');
+            return true;
+          }
+        } catch (e) {
+          // Cannot parse response
+        }
+      }
+      
       // If /health fails, try the root path as fallback
-      if (response.status === 404) {
-        const rootResponse = await fetch('https://scorecast-live-streamer-production.up.railway.app/', {
-          signal: controller.signal
-        });
+      const rootResponse = await fetch('https://scorecast-live-streamer-production.up.railway.app/', {
+        signal: controller.signal
+      });
+      
+      // Same logic for root path - any response (including 400 WebSocket error) means server is running
+      if (rootResponse.ok || rootResponse.status === 400) {
+        try {
+          const data = await rootResponse.json();
+          if (rootResponse.status === 400 && data.error?.includes("WebSocket")) {
+            return true;
+          }
+        } catch (e) {
+          // If we can't parse the JSON but got a response, the server is still running
+          if (rootResponse.status === 400) {
+            return true;
+          }
+        }
         
         if (rootResponse.ok) {
           return true;

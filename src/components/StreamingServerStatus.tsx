@@ -84,6 +84,24 @@ const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl
           toast.success(`Railway streaming server is responding`);
         }
       } else {
+        // Check the response content to see if it's the WebSocket error
+        try {
+          const errorData = await response.json();
+          if (errorData.error?.includes("WebSocket")) {
+            // If server is responding but telling us to use WebSocket, it's actually online
+            setStatus('online');
+            setError(null);
+            toast.success(`Railway streaming server is online`, {
+              description: `Server is expecting WebSocket connections. Health endpoint not configured.`
+            });
+            setIsLoading(false);
+            setLastChecked(new Date());
+            return;
+          }
+        } catch (e) {
+          // JSON parsing failed, continue with normal error handling
+        }
+        
         setStatus('offline');
         setError(`Server returned error status: ${response.status}`);
         toast.error(`Railway server error`, {
@@ -112,16 +130,37 @@ const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl
           
           clearTimeout(timeoutId);
           
-          if (rootResponse.ok) {
-            const endTime = performance.now();
-            const roundTripTime = Math.round(endTime - startTime);
-            setLatency(roundTripTime);
-            setStatus('online');
-            toast.success('Railway streaming server is online (fallback check)');
-            setError(null);
-            setIsLoading(false);
-            setLastChecked(new Date());
-            return;
+          // If we get any response from the root path, consider it online
+          // Even if it's a 400 with the WebSocket error, it means the server is running
+          if (rootResponse.ok || rootResponse.status === 400) {
+            try {
+              const data = await rootResponse.json();
+              // If we get the WebSocket error message, the server is actually running
+              if (data.error?.includes("WebSocket")) {
+                const endTime = performance.now();
+                const roundTripTime = Math.round(endTime - startTime);
+                setLatency(roundTripTime);
+                setStatus('online');
+                toast.success('Railway streaming server is online (WebSocket enabled)');
+                setError(null);
+                setIsLoading(false);
+                setLastChecked(new Date());
+                return;
+              }
+            } catch (e) {
+              // If we can't parse JSON but got a response, server is still up
+              if (rootResponse.status === 400) {
+                const endTime = performance.now();
+                const roundTripTime = Math.round(endTime - startTime);
+                setLatency(roundTripTime);
+                setStatus('online');
+                toast.success('Railway streaming server is online');
+                setError(null);
+                setIsLoading(false);
+                setLastChecked(new Date());
+                return;
+              }
+            }
           }
         } catch (fallbackErr) {
           console.error('Fallback check also failed:', fallbackErr);

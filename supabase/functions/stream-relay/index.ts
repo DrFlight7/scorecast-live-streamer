@@ -103,8 +103,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
   
-  // Health check endpoint
+  // Parse the URL
   const url = new URL(req.url);
+  
+  // Health check endpoint - HANDLE THIS FIRST before WebSocket check
   if (url.pathname === '/health' || url.pathname === '/') {
     console.log('Health check request received');
     return new Response(
@@ -119,7 +121,7 @@ serve(async (req) => {
     );
   }
 
-  // Check for WebSocket upgrade request
+  // Now check for WebSocket upgrade AFTER handling HTTP endpoints
   const upgradeHeader = req.headers.get("upgrade") || "";
   if (upgradeHeader.toLowerCase() !== "websocket") {
     return new Response(JSON.stringify({ 

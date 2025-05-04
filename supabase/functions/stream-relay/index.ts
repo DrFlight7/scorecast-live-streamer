@@ -85,17 +85,45 @@ const startFFmpegProcess = (socketId: string, streamKey: string, inputPath: stri
 // Track connected WebSockets
 const sockets = new Map<string, WebSocket>();
 
+// Get server stats for health checks
+const getServerStats = () => {
+  return {
+    status: "ok",
+    healthy: true,
+    uptime: process.uptime ? process.uptime() : null,
+    activeStreams: activeStreams.size,
+    connectedClients: sockets.size,
+    timestamp: new Date().toISOString()
+  };
+};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+  
+  // Health check endpoint
+  const url = new URL(req.url);
+  if (url.pathname === '/health' || url.pathname === '/') {
+    console.log('Health check request received');
+    return new Response(
+      JSON.stringify(getServerStats()),
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json' 
+        } 
+      }
+    );
   }
 
   // Check for WebSocket upgrade request
   const upgradeHeader = req.headers.get("upgrade") || "";
   if (upgradeHeader.toLowerCase() !== "websocket") {
     return new Response(JSON.stringify({ 
-      error: "This endpoint requires a WebSocket connection" 
+      error: "This endpoint requires a WebSocket connection or use /health for status checks" 
     }), { 
       status: 400, 
       headers: { ...corsHeaders, "Content-Type": "application/json" } 

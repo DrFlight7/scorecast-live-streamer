@@ -93,6 +93,41 @@ const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl
     } catch (err: any) {
       console.error('Error checking server status:', err);
       setStatus('offline');
+      
+      // Fallback to try root path if /health fails
+      if (err.name === 'AbortError' || err.message?.includes('404')) {
+        try {
+          const domain = getDomain();
+          const rootUrl = `https://${domain}/`;
+          
+          console.log('Trying root path as fallback:', rootUrl);
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const rootResponse = await fetch(rootUrl, {
+            method: 'GET',
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (rootResponse.ok) {
+            const endTime = performance.now();
+            const roundTripTime = Math.round(endTime - startTime);
+            setLatency(roundTripTime);
+            setStatus('online');
+            toast.success('Railway streaming server is online (fallback check)');
+            setError(null);
+            setIsLoading(false);
+            setLastChecked(new Date());
+            return;
+          }
+        } catch (fallbackErr) {
+          console.error('Fallback check also failed:', fallbackErr);
+        }
+      }
+      
       setError(err.name === 'AbortError' 
         ? 'Connection timed out' 
         : `Error connecting to server: ${err.message || 'Unknown error'}`);

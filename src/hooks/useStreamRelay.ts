@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -162,7 +163,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      // Send a simple HTTP request to check if the server is up
+      // Send a request to the health endpoint
       const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health', {
         signal: controller.signal
       });
@@ -174,6 +175,18 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         console.log('Server status check response:', data);
         return true;
       }
+      
+      // If /health fails, try the root path as fallback
+      if (response.status === 404) {
+        const rootResponse = await fetch('https://scorecast-live-streamer-production.up.railway.app/', {
+          signal: controller.signal
+        });
+        
+        if (rootResponse.ok) {
+          return true;
+        }
+      }
+      
       return false;
     } catch (err) {
       console.error('Error checking server status:', err);

@@ -40,6 +40,7 @@ const StreamSetup = () => {
   
   // State to track if Railway server is available
   const [isRailwayAvailable, setIsRailwayAvailable] = useState(false);
+  const [isCheckingServer, setIsCheckingServer] = useState(false);
   
   // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
@@ -48,16 +49,42 @@ const StreamSetup = () => {
   // Check Railway server status on mount
   useEffect(() => {
     const checkRailwayStatus = async () => {
+      setIsCheckingServer(true);
       try {
-        const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
-        if (response.ok) {
+        // Try health endpoint
+        const healthCheck = async () => {
+          const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
+          if (response.ok) {
+            return true;
+          }
+          return false;
+        };
+        
+        // Try root endpoint as fallback
+        const rootCheck = async () => {
+          const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/');
+          if (response.ok) {
+            return true;
+          }
+          return false;
+        };
+        
+        // Try both checks
+        const isHealthy = await healthCheck().catch(() => false);
+        const isRootAvailable = !isHealthy ? await rootCheck().catch(() => false) : false;
+        
+        if (isHealthy || isRootAvailable) {
           setIsRailwayAvailable(true);
+          console.log('Railway server is available');
         } else {
           setIsRailwayAvailable(false);
+          console.warn('Railway server appears to be offline');
         }
       } catch (err) {
         console.error('Railway server status check failed:', err);
         setIsRailwayAvailable(false);
+      } finally {
+        setIsCheckingServer(false);
       }
     };
     
@@ -256,10 +283,19 @@ const StreamSetup = () => {
               <div className="bg-black/30 p-3 rounded">
                 <div className="text-xs text-white/60 mb-1">Server Status</div>
                 <div className="flex items-center">
-                  <div className={`w-2 h-2 rounded-full ${isRailwayAvailable ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
-                  <span className="text-sm text-white">
-                    {isRailwayAvailable ? 'Railway FFmpeg server is online' : 'Railway FFmpeg server is offline'}
-                  </span>
+                  {isCheckingServer ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-blue-500 mr-2 animate-pulse"></div>
+                      <span className="text-sm text-white">Checking server status...</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`w-2 h-2 rounded-full ${isRailwayAvailable ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
+                      <span className="text-sm text-white">
+                        {isRailwayAvailable ? 'Railway FFmpeg server is online' : 'Railway FFmpeg server is offline'}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

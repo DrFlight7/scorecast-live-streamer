@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
@@ -105,12 +106,11 @@ const startFFmpegProcess = (socketId: string, streamKey: string, inputPath: stri
 // Track connected WebSockets
 const sockets = new Map<string, WebSocket>();
 
-// Get server stats for health checks
+// Get server stats for health checks - Fixed to avoid using Node.js process object
 const getServerStats = () => {
   return {
     status: "ok",
     healthy: true,
-    uptime: process.uptime ? process.uptime() : null,
     activeStreams: activeStreams.size,
     connectedClients: sockets.size,
     timestamp: new Date().toISOString()

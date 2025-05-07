@@ -1,26 +1,22 @@
-# Use official Node.js 20 Alpine (lightweight)
 FROM node:20-alpine
 
-# Install FFmpeg and dependencies
+# Install FFmpeg
 RUN apk add --no-cache ffmpeg
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files first (better caching)
+# Copy package files first for caching
 COPY package*.json ./
 
-# Install dependencies
 RUN npm install
 
-# Copy all other project files
+# Copy all other files
 COPY . .
 
-# Build (if you have a build step)
+# Build if needed
 RUN npm run build
 
-# Expose port (match your app's port, e.g., 3000)
 EXPOSE 3000
 
-# Run your app
-CMD ["node", "server.js"]  # Replace with your entry file
+# Critical Fix: Use proper JSON array syntax
+CMD ["node", "server.js"]

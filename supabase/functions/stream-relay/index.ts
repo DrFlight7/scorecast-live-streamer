@@ -30,27 +30,42 @@ const cleanupProcess = (socketId: string) => {
   activeStreams.delete(socketId);
 };
 
-// Create a temp file for the given socket
-const createTempFile = (socketId: string): string => {
-  // In a production environment, this would create a real temp file
-  // For this simulation, we'll just return a path
-  return `/tmp/stream-${socketId}.webm`;
+// Check if FFmpeg is available in the environment
+const checkFFmpegAvailability = async (): Promise<boolean> => {
+  try {
+    // Try to execute FFmpeg version command to check if it's available
+    const command = new Deno.Command("ffmpeg", {
+      args: ["-version"],
+      stdout: "piped",
+      stderr: "piped",
+    });
+    
+    const { code } = await command.output();
+    return code === 0;
+  } catch (err) {
+    console.error("FFmpeg not available:", err.message);
+    return false;
+  }
 };
 
 // Start FFmpeg process for a socket
-const startFFmpegProcess = (socketId: string, streamKey: string, inputPath: string): boolean => {
+const startFFmpegProcess = async (socketId: string, streamKey: string): Promise<boolean> => {
   try {
     console.log(`Starting FFmpeg process for socket ${socketId} with stream key ${streamKey.substring(0, 5)}...`);
     
-    // Actually execute FFmpeg (not just log what it would do)
-    // Note: On Deno Deploy or environments without access to local FFmpeg,
-    // you may need to bundle FFmpeg or use a cloud FFmpeg service
+    // Check if FFmpeg is available first
+    const isFFmpegAvailable = await checkFFmpegAvailability();
+    if (!isFFmpegAvailable) {
+      console.error("FFmpeg is not available in the environment");
+      return false;
+    }
+    
     try {
-      const process = Deno.run({
-        cmd: [
-          "ffmpeg",
+      // Create FFmpeg process that reads from stdin (pipe)
+      const process = new Deno.Command("ffmpeg", {
+        args: [
           "-re",
-          "-i", inputPath,
+          "-i", "pipe:0",     // Read from stdin
           "-c:v", "libx264", 
           "-preset", "veryfast",
           "-maxrate", "3000k",
@@ -61,13 +76,16 @@ const startFFmpegProcess = (socketId: string, streamKey: string, inputPath: stri
           "-f", "flv",
           `rtmp://live-api-s.facebook.com:443/rtmp/${streamKey}`
         ],
+        stdin: "piped",
         stdout: "piped",
         stderr: "piped"
       });
       
+      const child = process.spawn();
+      
       // Save the process in our active streams map
       activeStreams.set(socketId, {
-        process: process,
+        process: child,
         key: streamKey,
         startTime: Date.now()
       });
@@ -75,18 +93,17 @@ const startFFmpegProcess = (socketId: string, streamKey: string, inputPath: stri
       // Log actual FFmpeg output to debug issues
       (async () => {
         const decoder = new TextDecoder();
-        for await (const chunk of process.stderr.readable) {
+        for await (const chunk of child.stderr.readable) {
           console.log("FFmpeg stderr:", decoder.decode(chunk));
         }
       })();
       
       return true;
     } catch (err) {
-      console.error("Error executing FFmpeg (falling back to simulation mode):", err);
+      console.error("Error executing FFmpeg:", err);
       
-      // If we can't actually run FFmpeg (e.g. due to environment limitations),
-      // fall back to simulation mode but still track the stream
-      console.log(`FFmpeg would convert ${inputPath} and stream to Facebook with key ${streamKey.substring(0, 5)}...`);
+      // If we can't actually run FFmpeg, fall back to simulation mode
+      console.log(`Simulation: Would stream to Facebook with key ${streamKey.substring(0, 5)}...`);
       
       activeStreams.set(socketId, {
         process: null, // would be the real process in production
@@ -138,6 +155,43 @@ serve(async (req) => {
         } 
       }
     );
+  }
+  
+  // FFmpeg version check endpoint
+  if (url.pathname === '/ffmpeg-check') {
+    try {
+      const isAvailable = await checkFFmpegAvailability();
+      
+      return new Response(
+        JSON.stringify({
+          ffmpegAvailable: isAvailable,
+          environment: {
+            denoVersion: Deno.version.deno,
+            v8Version: Deno.version.v8,
+            tsVersion: Deno.version.typescript
+          }
+        }),
+        { 
+          status: 200, 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json' 
+          } 
+        }
+      );
+    } catch (err) {
+      return new Response(
+        JSON.stringify({ 
+          error: "FFmpeg check failed", 
+          message: err.message,
+          stack: err.stack 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        }
+      );
+    }
   }
 
   // Now check for WebSocket upgrade AFTER handling HTTP endpoints
@@ -192,8 +246,6 @@ serve(async (req) => {
         // If we have an actual process, pipe the data to it
         if (activeStream.process) {
           try {
-            const stream = activeStream.process.stdin;
-            
             // Convert Blob to ArrayBuffer if needed
             let buffer: ArrayBuffer;
             if (event.data instanceof Blob) {
@@ -203,8 +255,9 @@ serve(async (req) => {
             }
             
             // Write to FFmpeg stdin
-            const uint8Array = new Uint8Array(buffer);
-            await stream.write(uint8Array);
+            const writer = activeStream.process.stdin.getWriter();
+            await writer.write(new Uint8Array(buffer));
+            writer.releaseLock();
           } catch (err) {
             console.error("Error writing to FFmpeg stdin:", err);
           }
@@ -246,11 +299,8 @@ serve(async (req) => {
             
             console.log("Stream start requested with key:", message.streamKey.substring(0, 5) + "...");
             
-            // Create temporary file path for this socket
-            const tempFilePath = createTempFile(socketId);
-            
-            // Start FFmpeg process
-            const started = startFFmpegProcess(socketId, message.streamKey, tempFilePath);
+            // Start FFmpeg process directly with piped input (no temp file)
+            const started = await startFFmpegProcess(socketId, message.streamKey);
             
             if (started) {
               // Simulate successful stream start - only if socket is open
@@ -267,7 +317,7 @@ serve(async (req) => {
               if (socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
                   type: "error",
-                  message: "Failed to start streaming process"
+                  message: "Failed to start streaming process - FFmpeg may not be available"
                 }));
               }
             }

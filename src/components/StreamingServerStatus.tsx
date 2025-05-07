@@ -1,298 +1,184 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { RefreshCw, Server, CheckCircle, XCircle } from 'lucide-react';
-import { toast } from 'sonner';
-import { Progress } from '@/components/ui/progress';
+import { Server, RefreshCw, Check, X, Activity } from 'lucide-react';
 
 interface StreamingServerStatusProps {
   serverUrl: string;
 }
 
-const StreamingServerStatus: React.FC<StreamingServerStatusProps> = ({ serverUrl }) => {
-  const [status, setStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [latency, setLatency] = useState<number | null>(null);
+const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'unknown'>('unknown');
+  const [ffmpegStatus, setFfmpegStatus] = useState<'available' | 'unavailable' | 'unknown'>('unknown');
+  const [stats, setStats] = useState<{
+    activeStreams?: number;
+    connectedClients?: number;
+    timestamp?: string;
+  }>({});
   const [error, setError] = useState<string | null>(null);
 
-  // Parse domain from URL
-  const getDomain = useCallback(() => {
-    try {
-      const url = new URL(serverUrl);
-      return url.hostname;
-    } catch (e) {
-      return serverUrl;
-    }
-  }, [serverUrl]);
-
-  // Check server status
-  const checkStatus = useCallback(async () => {
+  const checkServerStatus = async () => {
     setIsLoading(true);
     setError(null);
-    
-    // Start timing for latency measurement
-    const startTime = performance.now();
-    
+
     try {
-      // Extract the hostname to check health endpoint
-      const domain = getDomain();
-      // Use https for the health check
-      const healthUrl = `https://${domain}/health`;
-      
-      console.log(`Checking server status at: ${healthUrl}`);
-      toast.info(`Checking Railway server status...`);
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch(healthUrl, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: controller.signal
+      // Check server health
+      const healthResponse = await fetch(`${serverUrl}/health`, { 
+        signal: AbortSignal.timeout(5000)
       });
       
-      clearTimeout(timeoutId);
-      
-      // Calculate latency
-      const endTime = performance.now();
-      const roundTripTime = Math.round(endTime - startTime);
-      setLatency(roundTripTime);
-      
-      if (response.ok) {
-        try {
-          const data = await response.json();
-          console.log('Server response:', data);
-          
-          if (data.status === 'ok' || data.healthy === true) {
-            setStatus('online');
-            toast.success(`Railway streaming server is online`, {
-              description: `Latency: ${roundTripTime}ms`
-            });
-          } else {
-            setStatus('offline');
-            setError(`Server returned unhealthy status: ${data.message || 'Unknown error'}`);
-            toast.error(`Railway streaming server is unhealthy`, {
-              description: data.message || 'Server reported unhealthy status'
-            });
-          }
-        } catch (e) {
-          // If JSON parsing fails but response was OK, still consider online
-          console.warn('Could not parse server response as JSON, but status was OK');
-          setStatus('online');
-          toast.success(`Railway streaming server is responding`);
-        }
-      } else {
-        // Check the response content to see if it's the WebSocket error
-        try {
-          const errorData = await response.json();
-          if (errorData.error?.includes("WebSocket")) {
-            // If server is responding but telling us to use WebSocket, it's actually online
-            setStatus('online');
-            setError(null);
-            toast.success(`Railway streaming server is online`, {
-              description: `Server is expecting WebSocket connections. Health endpoint not configured.`
-            });
-            setIsLoading(false);
-            setLastChecked(new Date());
-            return;
-          }
-        } catch (e) {
-          // JSON parsing failed, continue with normal error handling
-        }
-        
-        setStatus('offline');
-        setError(`Server returned error status: ${response.status}`);
-        toast.error(`Railway server error`, {
-          description: `Server returned status code ${response.status}`
+      if (healthResponse.ok) {
+        const data = await healthResponse.json();
+        setServerStatus('online');
+        setStats({
+          activeStreams: data.activeStreams,
+          connectedClients: data.connectedClients,
+          timestamp: data.timestamp
         });
-      }
-    } catch (err: any) {
-      console.error('Error checking server status:', err);
-      setStatus('offline');
-      
-      // Fallback to try root path if /health fails
-      if (err.name === 'AbortError' || err.message?.includes('404')) {
+        
+        // Check FFmpeg availability
         try {
-          const domain = getDomain();
-          const rootUrl = `https://${domain}/`;
-          
-          console.log('Trying root path as fallback:', rootUrl);
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          
-          const rootResponse = await fetch(rootUrl, {
-            method: 'GET',
-            signal: controller.signal
+          const ffmpegResponse = await fetch(`${serverUrl}/ffmpeg-check`, { 
+            signal: AbortSignal.timeout(5000)
           });
           
-          clearTimeout(timeoutId);
-          
-          // If we get any response from the root path, consider it online
-          // Even if it's a 400 with the WebSocket error, it means the server is running
-          if (rootResponse.ok || rootResponse.status === 400) {
-            try {
-              const data = await rootResponse.json();
-              // If we get the WebSocket error message, the server is actually running
-              if (data.error?.includes("WebSocket")) {
-                const endTime = performance.now();
-                const roundTripTime = Math.round(endTime - startTime);
-                setLatency(roundTripTime);
-                setStatus('online');
-                toast.success('Railway streaming server is online (WebSocket enabled)');
-                setError(null);
-                setIsLoading(false);
-                setLastChecked(new Date());
-                return;
-              }
-            } catch (e) {
-              // If we can't parse JSON but got a response, server is still up
-              if (rootResponse.status === 400) {
-                const endTime = performance.now();
-                const roundTripTime = Math.round(endTime - startTime);
-                setLatency(roundTripTime);
-                setStatus('online');
-                toast.success('Railway streaming server is online');
-                setError(null);
-                setIsLoading(false);
-                setLastChecked(new Date());
-                return;
-              }
+          if (ffmpegResponse.ok) {
+            const ffmpegData = await ffmpegResponse.json();
+            setFfmpegStatus(ffmpegData.ffmpegAvailable ? 'available' : 'unavailable');
+            
+            if (!ffmpegData.ffmpegAvailable) {
+              setError('FFmpeg is not available on the server. Streaming may not work properly.');
             }
+          } else {
+            setFfmpegStatus('unknown');
           }
-        } catch (fallbackErr) {
-          console.error('Fallback check also failed:', fallbackErr);
+        } catch (err) {
+          // FFmpeg check endpoint might not exist yet
+          setFfmpegStatus('unknown');
         }
+      } else {
+        setServerStatus('offline');
+        setError('Server health check failed');
       }
-      
-      setError(err.name === 'AbortError' 
-        ? 'Connection timed out' 
-        : `Error connecting to server: ${err.message || 'Unknown error'}`);
-      
-      toast.error(`Could not connect to Railway server`, {
-        description: err.name === 'AbortError' 
-          ? 'Connection timed out' 
-          : err.message || 'Unknown error'
-      });
+    } catch (err) {
+      console.error('Error checking server status:', err);
+      setServerStatus('offline');
+      setError('Failed to connect to streaming server');
     } finally {
       setIsLoading(false);
-      setLastChecked(new Date());
     }
-  }, [serverUrl, getDomain]);
-  
-  // Check server status on mount
+  };
+
   useEffect(() => {
-    checkStatus();
-  }, [checkStatus]);
-  
-  // Get formatted last checked time
-  const getFormattedLastChecked = () => {
-    if (!lastChecked) return 'Never';
+    checkServerStatus();
+  }, [serverUrl]);
+
+  const formatTimestamp = (timestamp?: string) => {
+    if (!timestamp) return 'Unknown';
     
-    const now = new Date();
-    const diffMs = now.getTime() - lastChecked.getTime();
-    const diffSecs = Math.round(diffMs / 1000);
-    
-    if (diffSecs < 60) return `${diffSecs} seconds ago`;
-    if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)} minutes ago`;
-    return `${Math.floor(diffSecs / 3600)} hours ago`;
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch (err) {
+      return timestamp;
+    }
   };
-  
-  // Get latency rating
-  const getLatencyRating = () => {
-    if (!latency) return null;
-    
-    if (latency < 100) return { text: 'Excellent', color: 'text-green-500 bg-green-500' };
-    if (latency < 300) return { text: 'Good', color: 'text-green-400 bg-green-400' };
-    if (latency < 600) return { text: 'Fair', color: 'text-yellow-500 bg-yellow-500' };
-    return { text: 'Poor', color: 'text-red-500 bg-red-500' };
-  };
-  
-  const latencyRating = getLatencyRating();
 
   return (
-    <div className="bg-black/20 border border-white/10 rounded-lg p-4 space-y-3">
+    <div className="space-y-4 p-4 bg-black/20 rounded-lg">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-white flex items-center">
-          <Server className="mr-2 h-5 w-5 text-white/70" />
-          Railway FFmpeg Server
-        </h3>
-        <Button 
+        <h3 className="text-lg font-medium text-white">Railway FFmpeg Server Status</h3>
+        <Button
           variant="ghost"
           size="sm"
-          className="h-8 text-white/70 hover:text-white"
-          onClick={checkStatus}
+          className="h-8 w-8 rounded-full"
+          onClick={checkServerStatus}
           disabled={isLoading}
         >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
         </Button>
       </div>
-      
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-black/30 p-2 rounded">
-          <div className="text-xs text-white/60">Status</div>
+
+      {error && (
+        <Alert className="bg-red-900/50 border-red-500">
+          <AlertDescription className="text-red-200">{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-black/30 p-4 rounded-lg">
+          <div className="flex items-center mb-2">
+            <Server size={16} className="text-white/70 mr-2" />
+            <span className="text-sm text-white font-medium">Server Status</span>
+          </div>
+          
           <div className="flex items-center">
-            {status === 'checking' ? (
-              <>
-                <RefreshCw className="h-4 w-4 text-blue-400 animate-spin mr-1" />
-                <span className="text-sm text-white">Checking...</span>
-              </>
-            ) : status === 'online' ? (
-              <>
-                <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
-                <span className="text-sm text-white">Online</span>
-              </>
+            <div className={`h-2 w-2 rounded-full mr-2 ${
+              serverStatus === 'online' ? 'bg-green-500' : 
+              serverStatus === 'offline' ? 'bg-red-500' : 
+              'bg-yellow-500'
+            }`}></div>
+            <span className="text-sm text-white">
+              {isLoading ? 'Checking...' : 
+               serverStatus === 'online' ? 'Online' : 
+               serverStatus === 'offline' ? 'Offline' : 
+               'Unknown'}
+            </span>
+          </div>
+          
+          {serverStatus === 'online' && (
+            <div className="mt-2 text-xs text-white/60">
+              <p>Last updated: {formatTimestamp(stats.timestamp)}</p>
+              <p>Active streams: {stats.activeStreams || 0}</p>
+              <p>Connected clients: {stats.connectedClients || 0}</p>
+            </div>
+          )}
+        </div>
+        
+        <div className="bg-black/30 p-4 rounded-lg">
+          <div className="flex items-center mb-2">
+            <Activity size={16} className="text-white/70 mr-2" />
+            <span className="text-sm text-white font-medium">FFmpeg Status</span>
+          </div>
+          
+          <div className="flex items-center">
+            {isLoading ? (
+              <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
+            ) : ffmpegStatus === 'available' ? (
+              <Check size={16} className="text-green-500 mr-2" />
+            ) : ffmpegStatus === 'unavailable' ? (
+              <X size={16} className="text-red-500 mr-2" />
             ) : (
-              <>
-                <XCircle className="h-4 w-4 text-red-500 mr-1" />
-                <span className="text-sm text-white">Offline</span>
-              </>
+              <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
+            )}
+            
+            <span className="text-sm text-white">
+              {isLoading ? 'Checking...' : 
+               ffmpegStatus === 'available' ? 'Available' : 
+               ffmpegStatus === 'unavailable' ? 'Not Available' : 
+               'Unknown'}
+            </span>
+          </div>
+          
+          <div className="mt-2 text-xs">
+            {ffmpegStatus === 'available' ? (
+              <span className="text-green-400">Ready for streaming</span>
+            ) : ffmpegStatus === 'unavailable' ? (
+              <span className="text-red-400">FFmpeg not available - streaming will not work</span>
+            ) : (
+              <span className="text-yellow-400">Could not determine FFmpeg status</span>
             )}
           </div>
         </div>
-        
-        <div className="bg-black/30 p-2 rounded">
-          <div className="text-xs text-white/60">Server URL</div>
-          <div className="text-sm text-white truncate" title={getDomain()}>
-            {getDomain()}
-          </div>
-        </div>
-        
-        <div className="bg-black/30 p-2 rounded">
-          <div className="text-xs text-white/60">Last Checked</div>
-          <div className="text-sm text-white">
-            {getFormattedLastChecked()}
-          </div>
-        </div>
-        
-        {latency && (
-          <div className="bg-black/30 p-2 rounded">
-            <div className="text-xs text-white/60">Latency</div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white">{latency}ms</span>
-              <span className={`text-xs ${latencyRating?.color.split(' ')[0]}`}>
-                {latencyRating?.text}
-              </span>
-            </div>
-            <Progress 
-              value={latency < 600 ? 100 - ((latency / 600) * 100) : 0} 
-              className="h-1 mt-1"
-              indicatorClassName={latencyRating?.color.split(' ')[1]}
-            />
-          </div>
-        )}
       </div>
       
-      {error && (
-        <Alert variant="destructive" className="bg-red-900/50 border-red-500 mt-2">
-          <AlertDescription className="text-red-200 text-xs">{error}</AlertDescription>
-        </Alert>
-      )}
-      
-      <div className="text-xs text-white/50 text-center pt-1">
-        Integration with Railway FFmpeg server for production live streaming
+      <div className="text-xs text-white/60 mt-2">
+        {serverStatus === 'online' ? (
+          <p>The Railway server is online and {ffmpegStatus === 'available' ? 'ready' : 'not ready'} to process streams.</p>
+        ) : (
+          <p>The Railway server appears to be offline. Please check your deployment.</p>
+        )}
       </div>
     </div>
   );

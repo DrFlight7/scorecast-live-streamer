@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -214,6 +213,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         }
       }
       
+      console.log('Server status checks failed - server appears to be offline');
       return false;
     } catch (err) {
       console.error('Error checking server status:', err);

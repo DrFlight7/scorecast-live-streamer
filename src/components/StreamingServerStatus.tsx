@@ -18,6 +18,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     timestamp?: string;
   }>({});
   const [error, setError] = useState<string | null>(null);
+  const [detailedInfo, setDetailedInfo] = useState<any>(null);
 
   const checkServerStatus = async () => {
     setIsLoading(true);
@@ -47,6 +48,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
           if (ffmpegResponse.ok) {
             const ffmpegData = await ffmpegResponse.json();
             setFfmpegStatus(ffmpegData.ffmpegAvailable ? 'available' : 'unavailable');
+            setDetailedInfo(ffmpegData);
             
             if (!ffmpegData.ffmpegAvailable) {
               setError('FFmpeg is not available on the server. Streaming may not work properly.');
@@ -180,6 +182,15 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
           <p>The Railway server appears to be offline. Please check your deployment.</p>
         )}
       </div>
+      
+      {detailedInfo && (
+        <div className="mt-4 p-3 bg-black/40 rounded-md text-xs text-white/70 border border-white/10">
+          <p className="font-semibold mb-1">Environment Info:</p>
+          <pre className="overflow-x-auto whitespace-pre-wrap">
+            {JSON.stringify(detailedInfo, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 };

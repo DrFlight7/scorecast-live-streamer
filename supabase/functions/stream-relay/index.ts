@@ -40,7 +40,11 @@ const checkFFmpegAvailability = async (): Promise<boolean> => {
       stderr: "piped",
     });
     
-    const { code } = await command.output();
+    const { code, stdout } = await command.output();
+    const output = new TextDecoder().decode(stdout);
+    console.log("FFmpeg check result:", code === 0 ? "Available" : "Not available");
+    console.log("FFmpeg version output:", output.substring(0, 100) + "...");
+    
     return code === 0;
   } catch (err) {
     console.error("FFmpeg not available:", err.message);
@@ -162,14 +166,43 @@ serve(async (req) => {
     try {
       const isAvailable = await checkFFmpegAvailability();
       
+      // Try to get more environment information
+      let envInfo = {};
+      try {
+        // Get the PATH environment variable
+        const path = Deno.env.get("PATH");
+        
+        // Try to find where ffmpeg is installed
+        let ffmpegPath = "";
+        try {
+          const which = new Deno.Command("which", {
+            args: ["ffmpeg"],
+            stdout: "piped",
+          });
+          const output = await which.output();
+          if (output.code === 0) {
+            ffmpegPath = new TextDecoder().decode(output.stdout).trim();
+          }
+        } catch (_) {
+          // Ignore errors from which command
+        }
+        
+        envInfo = {
+          path,
+          ffmpegPath,
+          denoVersion: Deno.version.deno,
+          v8Version: Deno.version.v8,
+          tsVersion: Deno.version.typescript
+        };
+      } catch (envErr) {
+        console.error("Error getting environment info:", envErr);
+        envInfo = { error: "Could not get environment info" };
+      }
+      
       return new Response(
         JSON.stringify({
           ffmpegAvailable: isAvailable,
-          environment: {
-            denoVersion: Deno.version.deno,
-            v8Version: Deno.version.v8,
-            tsVersion: Deno.version.typescript
-          }
+          environment: envInfo
         }),
         { 
           status: 200, 

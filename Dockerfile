@@ -1,3 +1,4 @@
+
 FROM node:20-alpine
 
 # Install FFmpeg
@@ -18,5 +19,5 @@ RUN npm run build
 
 EXPOSE 3000
 
-# Critical Fix: Use proper JSON array syntax
-CMD ["node", "server.js"]
+# Use serve to serve static files
+CMD ["npx", "serve", "-s", "dist"]

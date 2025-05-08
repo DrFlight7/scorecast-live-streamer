@@ -159,57 +159,53 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   // Function to check if the Railway FFmpeg server is available
   const checkServerStatus = useCallback(async (): Promise<boolean> => {
     try {
+      console.log('Checking Railway server status');
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      // Send a request to the health endpoint
-      const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health', {
-        signal: controller.signal
-      });
+      // Define multiple possible endpoints to try
+      const endpoints = [
+        'https://scorecast-live-streamer-production.up.railway.app/health',
+        'https://scorecast-live-streamer-production.up.railway.app/',
+        'https://scorecast-live-streamer-production.railway.app/health',
+        'https://scorecast-live-streamer-production.railway.app/'
+      ];
       
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Server status check response:', data);
-        return true;
-      }
-      
-      // If /health returns 400 with WebSocket error, the server is actually online
-      // but expecting WebSocket connections
-      if (response.status === 400) {
+      // Try each endpoint
+      for (const endpoint of endpoints) {
+        console.log(`Trying endpoint: ${endpoint}`);
         try {
-          const errorData = await response.json();
-          if (errorData.error?.includes("WebSocket")) {
-            console.log('Server is running but requires WebSocket connections');
+          const response = await fetch(endpoint, {
+            signal: controller.signal,
+            headers: {
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache'
+            }
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Server status check response:', data);
             return true;
           }
-        } catch (e) {
-          // Cannot parse response
-        }
-      }
-      
-      // If /health fails, try the root path as fallback
-      const rootResponse = await fetch('https://scorecast-live-streamer-production.up.railway.app/', {
-        signal: controller.signal
-      });
-      
-      // Same logic for root path - any response (including 400 WebSocket error) means server is running
-      if (rootResponse.ok || rootResponse.status === 400) {
-        try {
-          const data = await rootResponse.json();
-          if (rootResponse.status === 400 && data.error?.includes("WebSocket")) {
-            return true;
+          
+          // If /health returns 400 with WebSocket error, the server is actually online
+          // but expecting WebSocket connections
+          if (response.status === 400) {
+            try {
+              const errorData = await response.json();
+              if (errorData.error?.includes("WebSocket")) {
+                console.log('Server is running but requires WebSocket connections');
+                return true;
+              }
+            } catch (e) {
+              // Cannot parse response
+            }
           }
-        } catch (e) {
-          // If we can't parse the JSON but got a response, the server is still running
-          if (rootResponse.status === 400) {
-            return true;
-          }
-        }
-        
-        if (rootResponse.ok) {
-          return true;
+        } catch (err) {
+          console.warn(`Failed to connect to ${endpoint}:`, err);
         }
       }
       
@@ -227,6 +223,22 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     setState(prev => ({ ...prev, status: 'connecting', error: null }));
 
     try {
+      // First check if the server is available via HTTP
+      const isAvailable = await checkServerStatus();
+      
+      if (!isAvailable) {
+        console.error('Railway server is not available');
+        setState(prev => ({ 
+          ...prev, 
+          status: 'error',
+          error: 'Railway streaming server appears to be offline' 
+        }));
+        toast.error("Railway server offline", {
+          description: "The Railway streaming server appears to be offline. Please check the deployment."
+        });
+        return false;
+      }
+      
       console.log('Connecting to Railway WebSocket server:', wsEndpoint);
       const socket = new WebSocket(wsEndpoint);
       socketRef.current = socket;
@@ -415,7 +427,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       }));
       return false;
     }
-  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint, sendHeartbeat]);
+  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint, sendHeartbeat, checkServerStatus]);
 
   // Function to disconnect from the WebSocket server
   const disconnect = useCallback(() => {

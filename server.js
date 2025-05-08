@@ -1,6 +1,13 @@
 
-const express = require('express');
-const path = require('path');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -10,7 +17,6 @@ app.use(express.json());
 // Health check endpoint
 app.get('/health', (req, res) => {
   // Check if FFmpeg is available
-  const { execSync } = require('child_process');
   let ffmpegAvailable = false;
   let ffmpegVersion = null;
   

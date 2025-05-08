@@ -19,5 +19,5 @@ RUN npm run build
 
 EXPOSE 3000
 
-# Use serve to serve static files
-CMD ["npx", "serve", "-s", "dist"]
+# Use node to run our server.js
+CMD ["node", "server.js"]

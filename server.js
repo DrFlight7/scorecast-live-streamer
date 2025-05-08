@@ -4,6 +4,37 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware to parse JSON
+app.use(express.json());
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  // Check if FFmpeg is available
+  const { execSync } = require('child_process');
+  let ffmpegAvailable = false;
+  let ffmpegVersion = null;
+  
+  try {
+    // Use installed FFmpeg in production or local path in development
+    const ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
+    const output = execSync(`${ffmpegPath} -version`).toString();
+    ffmpegAvailable = true;
+    ffmpegVersion = output.split('\n')[0];
+  } catch (err) {
+    console.error('FFmpeg check failed:', err.message);
+  }
+  
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    ffmpegAvailable,
+    ffmpegVersion,
+    environment: process.env.NODE_ENV || 'development',
+    activeStreams: 0,
+    connectedClients: 0
+  });
+});
+
 // Serve static files from the 'dist' directory
 app.use(express.static(path.join(__dirname, 'dist')));
 

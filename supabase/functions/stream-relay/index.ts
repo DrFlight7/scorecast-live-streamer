@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
@@ -30,8 +31,8 @@ const cleanupProcess = (socketId: string) => {
   activeStreams.delete(socketId);
 };
 
-// Check if FFmpeg is available in the environment
-const checkFFmpegAvailability = async (): Promise<boolean> => {
+// Check if FFmpeg is available in the environment - with proper error handling
+const checkFFmpegAvailability = async (): Promise<{ available: boolean; version?: string; error?: string }> => {
   try {
     // Try to execute FFmpeg version command to check if it's available
     const command = new Deno.Command("ffmpeg", {
@@ -40,27 +41,35 @@ const checkFFmpegAvailability = async (): Promise<boolean> => {
       stderr: "piped",
     });
     
-    const { code, stdout } = await command.output();
-    const output = new TextDecoder().decode(stdout);
-    console.log("FFmpeg check result:", code === 0 ? "Available" : "Not available");
-    console.log("FFmpeg version output:", output.substring(0, 100) + "...");
+    const { code, stdout, stderr } = await command.output();
     
-    return code === 0;
+    if (code === 0) {
+      const output = new TextDecoder().decode(stdout);
+      const version = output.split('\n')[0];
+      console.log("FFmpeg check result: Available");
+      console.log("FFmpeg version:", version);
+      return { available: true, version };
+    } else {
+      const errorOutput = new TextDecoder().decode(stderr);
+      console.error("FFmpeg command failed with code:", code);
+      console.error("Error output:", errorOutput);
+      return { available: false, error: `FFmpeg exited with code ${code}: ${errorOutput}` };
+    }
   } catch (err) {
-    console.error("FFmpeg not available:", err.message);
-    return false;
+    console.error("FFmpeg check exception:", err.message);
+    return { available: false, error: err.message };
   }
 };
 
-// Start FFmpeg process for a socket
+// Start FFmpeg process for a socket - with enhanced error reporting
 const startFFmpegProcess = async (socketId: string, streamKey: string): Promise<boolean> => {
   try {
     console.log(`Starting FFmpeg process for socket ${socketId} with stream key ${streamKey.substring(0, 5)}...`);
     
     // Check if FFmpeg is available first
-    const isFFmpegAvailable = await checkFFmpegAvailability();
-    if (!isFFmpegAvailable) {
-      console.error("FFmpeg is not available in the environment");
+    const ffmpegStatus = await checkFFmpegAvailability();
+    if (!ffmpegStatus.available) {
+      console.error("FFmpeg is not available:", ffmpegStatus.error);
       return false;
     }
     
@@ -126,14 +135,20 @@ const startFFmpegProcess = async (socketId: string, streamKey: string): Promise<
 // Track connected WebSockets
 const sockets = new Map<string, WebSocket>();
 
-// Get server stats for health checks - Fixed to avoid using Node.js process object
-const getServerStats = () => {
+// Get server stats for health checks - with enhanced FFmpeg status
+const getServerStats = async () => {
+  // Check FFmpeg status every time
+  const ffmpegStatus = await checkFFmpegAvailability();
+  
   return {
     status: "ok",
     healthy: true,
     activeStreams: activeStreams.size,
     connectedClients: sockets.size,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    ffmpegAvailable: ffmpegStatus.available,
+    ffmpegVersion: ffmpegStatus.version,
+    ffmpegError: ffmpegStatus.error
   };
 };
 
@@ -149,13 +164,46 @@ serve(async (req) => {
   // Health check endpoint - HANDLE THIS FIRST before WebSocket check
   if (url.pathname === '/health' || url.pathname === '/') {
     console.log('Health check request received');
+    const stats = await getServerStats();
     return new Response(
-      JSON.stringify(getServerStats()),
+      JSON.stringify(stats),
       { 
         status: 200, 
         headers: { 
           ...corsHeaders, 
-          'Content-Type': 'application/json' 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        } 
+      }
+    );
+  }
+  
+  // Plain-text health check for simple monitoring systems
+  if (url.pathname === '/health-plain') {
+    const ffmpegStatus = await checkFFmpegAvailability();
+    return new Response(
+      ffmpegStatus.available ? "OK: FFmpeg available" : "WARNING: FFmpeg not available",
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'text/plain',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        } 
+      }
+    );
+  }
+  
+  // Ping endpoint for simple connectivity checks
+  if (url.pathname === '/ping') {
+    return new Response(
+      "pong",
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'text/plain',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
         } 
       }
     );
@@ -164,7 +212,7 @@ serve(async (req) => {
   // FFmpeg version check endpoint
   if (url.pathname === '/ffmpeg-check') {
     try {
-      const isAvailable = await checkFFmpegAvailability();
+      const ffmpegStatus = await checkFFmpegAvailability();
       
       // Try to get more environment information
       let envInfo = {};
@@ -201,14 +249,17 @@ serve(async (req) => {
       
       return new Response(
         JSON.stringify({
-          ffmpegAvailable: isAvailable,
+          ffmpegAvailable: ffmpegStatus.available,
+          version: ffmpegStatus.version,
+          error: ffmpegStatus.error,
           environment: envInfo
         }),
         { 
           status: 200, 
           headers: { 
             ...corsHeaders, 
-            'Content-Type': 'application/json' 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
           } 
         }
       );

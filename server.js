@@ -39,98 +39,84 @@ app.options('*', (req, res) => {
   res.sendStatus(200);
 });
 
-// Health check endpoint with improved headers
-app.get('/health', (req, res) => {
-  // Check if FFmpeg is available
-  let ffmpegAvailable = false;
-  let ffmpegVersion = null;
-  let ffmpegPath = null;
-  let error = null;
-  
+// FFmpeg check function - returns promise for async usage
+const checkFFmpeg = async () => {
   try {
-    // Use system-wide ffmpeg command (we know it's installed from our Dockerfile/nixpacks)
-    ffmpegPath = 'ffmpeg';
-    console.log(`Attempting to check FFmpeg at: ${ffmpegPath}`);
-    
+    // Try multiple FFmpeg paths
+    const ffmpegPath = 'ffmpeg';
+    console.log(`Checking FFmpeg at system path: ${ffmpegPath}`);
     const output = execSync(`${ffmpegPath} -version`).toString();
-    ffmpegAvailable = true;
-    ffmpegVersion = output.split('\n')[0];
-    console.log(`FFmpeg check succeeded: ${ffmpegVersion}`);
+    console.log(`FFmpeg check succeeded: ${output.split('\n')[0]}`);
+    return {
+      available: true,
+      version: output.split('\n')[0],
+      path: ffmpegPath,
+      error: null
+    };
   } catch (err) {
-    error = err.message;
     console.error('FFmpeg check failed:', err.message);
+    return {
+      available: false,
+      version: null,
+      path: null,
+      error: err.message
+    };
   }
+};
+
+// Health check endpoint that always returns 200 with status in body
+app.get('/health', async (req, res) => {
+  const ffmpegStatus = await checkFFmpeg();
   
-  // Add detailed environment info
-  const envInfo = {
-    NODE_ENV: process.env.NODE_ENV || 'development',
-    PORT: PORT,
-    PATH: process.env.PATH,
-    platform: process.platform,
-    arch: process.arch,
-    nodeVersion: process.version,
-    workingDirectory: process.cwd()
-  };
-  
-  // Send response - always use status 200 with health details in body
+  // Always return 200 with health details in body
   // This helps with detection across different environments
   res.status(200).json({
-    status: ffmpegAvailable ? 'ok' : 'error',
-    message: ffmpegAvailable ? 'Server is running' : 'FFmpeg not available',
+    status: ffmpegStatus.available ? 'ok' : 'warning',
+    message: ffmpegStatus.available ? 'Server is running with FFmpeg available' : 'Server is running but FFmpeg is not available',
     timestamp: new Date().toISOString(),
-    ffmpegAvailable,
-    ffmpegVersion,
-    ffmpegPath,
-    error,
-    environment: envInfo,
+    ffmpegAvailable: ffmpegStatus.available,
+    ffmpegVersion: ffmpegStatus.version,
+    ffmpegPath: ffmpegStatus.path,
+    error: ffmpegStatus.error,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      PORT: PORT,
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version
+    },
     activeStreams: 0,
-    connectedClients: 0,
-    serverVersion: '1.0.4' // Increment version for tracking
+    connectedClients: 0
   });
 });
 
-// Add simple text response for tools that don't parse JSON
-app.get('/health-plain', (req, res) => {
-  try {
-    // Use system-wide ffmpeg command
-    const output = execSync('ffmpeg -version').toString();
-    res.status(200).send('OK: FFmpeg available');
-  } catch (err) {
-    res.status(200).send('ERROR: FFmpeg not available');
-  }
+// Add plain text health check - very minimal response for basic checks
+app.get('/health-plain', async (req, res) => {
+  const ffmpegStatus = await checkFFmpeg();
+  res.status(200).send(ffmpegStatus.available ? 'OK: FFmpeg available' : 'WARNING: FFmpeg not available');
 });
 
-// Add FFmpeg-specific check endpoint
-app.get('/ffmpeg-check', (req, res) => {
-  try {
-    // Use system ffmpeg in production
-    const ffmpegPath = 'ffmpeg';
-    const output = execSync(`${ffmpegPath} -version`).toString();
-    
-    res.status(200).json({
-      ffmpegAvailable: true,
-      version: output.split('\n')[0],
-      path: ffmpegPath,
-      environment: {
-        NODE_ENV: process.env.NODE_ENV || 'development',
-        platform: process.platform,
-        arch: process.arch,
-        PORT: PORT
-      }
-    });
-  } catch (err) {
-    console.error('FFmpeg check failed:', err.message);
-    res.status(200).json({
-      ffmpegAvailable: false,
-      error: err.message,
-      environment: {
-        NODE_ENV: process.env.NODE_ENV || 'development',
-        platform: process.platform,
-        arch: process.arch,
-        PORT: PORT
-      }
-    });
-  }
+// Add ping endpoint that doesn't require JSON parsing
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
+// FFmpeg specific check endpoint
+app.get('/ffmpeg-check', async (req, res) => {
+  const ffmpegStatus = await checkFFmpeg();
+  
+  res.status(200).json({
+    ffmpegAvailable: ffmpegStatus.available,
+    version: ffmpegStatus.version,
+    path: ffmpegStatus.path,
+    error: ffmpegStatus.error,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      platform: process.platform,
+      arch: process.arch,
+      PORT: PORT
+    }
+  });
 });
 
 // Add a root endpoint for basic connectivity testing
@@ -146,11 +132,6 @@ app.get('/', (req, res) => {
     },
     timestamp: new Date().toISOString()
   });
-});
-
-// Add a ping endpoint that doesn't require JSON parsing
-app.get('/ping', (req, res) => {
-  res.status(200).send('pong');
 });
 
 // Handle WebSocket connections or redirects for /stream
@@ -171,16 +152,18 @@ app.get('*', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
   
   // Test FFmpeg on startup and log the result
   try {
-    // Use system ffmpeg command 
-    const ffmpegPath = 'ffmpeg';
-    const output = execSync(`${ffmpegPath} -version`).toString();
-    console.log(`FFmpeg is available: ${output.split('\n')[0]}`);
+    const ffmpegStatus = await checkFFmpeg();
+    if (ffmpegStatus.available) {
+      console.log(`FFmpeg is available: ${ffmpegStatus.version}`);
+    } else {
+      console.error('FFmpeg is not available:', ffmpegStatus.error);
+    }
   } catch (err) {
-    console.error('FFmpeg is not available:', err.message);
+    console.error('Error checking FFmpeg status:', err.message);
   }
 });

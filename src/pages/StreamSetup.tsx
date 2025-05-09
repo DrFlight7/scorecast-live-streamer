@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -13,6 +12,7 @@ import { useAuth } from '@/components/AuthProvider';
 import YouTubeStreamManager from '@/components/YouTubeStreamManager';
 import FacebookStreamManager from '@/components/FacebookStreamManager';
 import StreamingServerStatus from '@/components/StreamingServerStatus';
+import { SERVER_ENDPOINTS, checkServerHealth } from '@/utils/serverHealthCheck';
 import {
   Accordion,
   AccordionContent,
@@ -50,7 +50,7 @@ const StreamSetup = () => {
   // State to track if Railway server is available
   const [isRailwayAvailable, setIsRailwayAvailable] = useState(false);
   const [isCheckingServer, setIsCheckingServer] = useState(false);
-  const [railwayServerUrl, setRailwayServerUrl] = useState(RAILWAY_SERVER_ENDPOINTS[0]);
+  const [railwayServerUrl, setRailwayServerUrl] = useState(SERVER_ENDPOINTS[0]);
   
   // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
@@ -61,137 +61,20 @@ const StreamSetup = () => {
     const checkRailwayStatus = async () => {
       setIsCheckingServer(true);
       
-      // Try each possible endpoint
-      for (const endpoint of RAILWAY_SERVER_ENDPOINTS) {
-        try {
-          // Try multiple check approaches for better reliability
-          
-          // Try health endpoint first
-          const healthCheck = async () => {
-            try {
-              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
-              const timestamp = new Date().getTime();
-              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
-                headers: {
-                  'Cache-Control': 'no-cache, no-store, must-revalidate',
-                  'Pragma': 'no-cache',
-                  'Expires': '0',
-                  'Accept': 'application/json'
-                },
-                cache: 'no-cache'
-              });
-              
-              if (response.ok) {
-                return { available: true, url: endpoint };
-              }
-              return { available: false };
-            } catch (e) {
-              return { available: false };
-            }
-          };
-          
-          // Try plain health check (returns text, not JSON)
-          const plainHealthCheck = async () => {
-            try {
-              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health-plain` : `${endpoint}/health-plain`;
-              const timestamp = new Date().getTime();
-              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
-                headers: {
-                  'Cache-Control': 'no-cache, no-store, must-revalidate',
-                  'Pragma': 'no-cache',
-                  'Expires': '0',
-                  'Accept': 'text/plain'
-                }
-              });
-              
-              if (response.ok) {
-                return { available: true, url: endpoint };
-              }
-              return { available: false };
-            } catch (e) {
-              return { available: false };
-            }
-          };
-          
-          // Try ping endpoint
-          const pingCheck = async () => {
-            try {
-              const pingEndpoint = endpoint.endsWith('/') ? `${endpoint}ping` : `${endpoint}/ping`;
-              const response = await fetch(pingEndpoint, {
-                headers: { 'Accept': 'text/plain' }
-              });
-              
-              if (response.ok) {
-                return { available: true, url: endpoint };
-              }
-              return { available: false };
-            } catch (e) {
-              return { available: false };
-            }
-          };
-          
-          // Try root endpoint as fallback
-          const rootCheck = async () => {
-            try {
-              const timestamp = new Date().getTime();
-              const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
-                headers: {
-                  'Cache-Control': 'no-cache, no-store, must-revalidate',
-                  'Pragma': 'no-cache',
-                  'Expires': '0'
-                },
-                cache: 'no-cache'
-              });
-              
-              if (response.ok) {
-                return { available: true, url: endpoint };
-              }
-              return { available: false };
-            } catch (e) {
-              return { available: false };
-            }
-          };
-          
-          // Try all checks in order
-          const healthResult = await healthCheck();
-          
-          if (healthResult.available) {
-            setIsRailwayAvailable(true);
-            setRailwayServerUrl(endpoint);
-            console.log(`Railway server is available at ${endpoint} (health check)`);
-            break;
-          }
-          
-          const plainResult = await plainHealthCheck();
-          
-          if (plainResult.available) {
-            setIsRailwayAvailable(true);
-            setRailwayServerUrl(endpoint);
-            console.log(`Railway server is available at ${endpoint} (plain health check)`);
-            break;
-          }
-          
-          const pingResult = await pingCheck();
-          
-          if (pingResult.available) {
-            setIsRailwayAvailable(true);
-            setRailwayServerUrl(endpoint);
-            console.log(`Railway server is available at ${endpoint} (ping check)`);
-            break;
-          }
-          
-          const rootResult = await rootCheck();
-          
-          if (rootResult.available) {
-            setIsRailwayAvailable(true);
-            setRailwayServerUrl(endpoint);
-            console.log(`Railway server is available at ${endpoint} (root check)`);
-            break;
-          }
-          
-        } catch (err) {
-          console.error(`Railway server check failed for ${endpoint}:`, err);
+      try {
+        console.log('Checking Railway server status...');
+        const healthStatus = await checkServerHealth();
+        
+        if (healthStatus.status === 'online') {
+          setIsRailwayAvailable(true);
+          console.log('Railway server is available');
+        } else {
+          setIsRailwayAvailable(false);
+          console.log('Railway server is not available');
         }
+      } catch (err) {
+        console.error('Error checking Railway server status:', err);
+        setIsRailwayAvailable(false);
       }
       
       setIsCheckingServer(false);

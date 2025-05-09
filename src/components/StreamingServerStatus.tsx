@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Server, RefreshCw, Check, X, Activity } from 'lucide-react';
+import { checkServerHealth, SERVER_ENDPOINTS } from '@/utils/serverHealthCheck';
 
 interface StreamingServerStatusProps {
   serverUrl: string;
@@ -19,265 +20,56 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
   }>({});
   const [error, setError] = useState<string | null>(null);
   const [detailedInfo, setDetailedInfo] = useState<any>(null);
+  const [effectiveServerUrl, setEffectiveServerUrl] = useState<string>('');
 
-  // List of possible server endpoints (ordered by priority)
-  const SERVER_ENDPOINTS = [
-    'https://scorecast-live-streamer-production.up.railway.app',
-    'https://scorecast-live-streamer-production-production.up.railway.app',
-    'https://scorecast-live-production.up.railway.app',
-    'https://scorecast-live-production-production.up.railway.app',
-    'https://scorecast-live-streamer.railway.app',
-    'https://scorecast-live-streamer-production.railway.app'
-  ];
-
-  // The actual Railway endpoint might have changed or might be using a different domain
-  // Let's try to determine the correct endpoint
-  const determineCorrectEndpoints = () => {
-    const endpoints = [...SERVER_ENDPOINTS];
-    
-    // Add user-provided URL if it's not already in the list
-    if (serverUrl && !endpoints.includes(serverUrl)) {
-      endpoints.unshift(serverUrl);
-    }
-    
-    return endpoints.map(endpoint => {
-      return endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
-    });
-  };
-
-  const checkServerStatus = async () => {
+  const checkStatus = async () => {
     setIsLoading(true);
     setError(null);
 
-    // Get all potential health check endpoints
-    const healthEndpoints = determineCorrectEndpoints();
+    console.log('Checking server status using serverUrl:', serverUrl);
     
-    // Also include root endpoints as fallbacks
-    const rootEndpoints = [...SERVER_ENDPOINTS, serverUrl].map(endpoint => {
-      return endpoint.endsWith('/') ? endpoint : `${endpoint}/`;
-    });
-
-    console.log('Attempting to connect to Railway server using endpoints:', healthEndpoints);
-    
-    let connected = false;
-    
-    // Try each endpoint until one works
-    for (const endpoint of healthEndpoints) {
-      try {
-        console.log(`Trying endpoint: ${endpoint}`);
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const timestamp = new Date().getTime();
-        const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
-          signal: controller.signal,
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          cache: 'no-cache'
-        });
-        
-        clearTimeout(timeoutId);
-        console.log(`Response from ${endpoint}:`, response.status);
-        
-        if (response.ok) {
-          let data;
-          try {
-            data = await response.json();
-            console.log('Server status check response:', data);
-          } catch (e) {
-            // If response is not JSON but status is OK, still consider server online
-            console.log('Response is not JSON but status is OK');
-            data = { status: 'ok', timestamp: new Date().toISOString() };
-          }
-          
-          setServerStatus('online');
-          setStats({
-            activeStreams: data.activeStreams || 0,
-            connectedClients: data.connectedClients || 0,
-            timestamp: data.timestamp
-          });
-          
-          // Check FFmpeg availability from the response
-          if (data.ffmpegAvailable !== undefined) {
-            setFfmpegStatus(data.ffmpegAvailable ? 'available' : 'unavailable');
-            setDetailedInfo(data);
-            
-            if (!data.ffmpegAvailable && data.error) {
-              setError(`FFmpeg is not available: ${data.error}`);
-            }
-          } else {
-            // If ffmpegAvailable is not in response, assume it's available since server is up
-            setFfmpegStatus('available');
-          }
-          
-          connected = true;
-          break;
-        } else if (response.status === 400) {
-          // Try to parse response to see if it's the WebSocket error (which means server is up)
-          try {
-            const errorData = await response.json();
-            if (errorData.error?.includes("WebSocket")) {
-              console.log('Server is running but requires WebSocket connections');
-              setServerStatus('online');
-              
-              // Try the ffmpeg-check endpoint separately
-              await checkFFmpegStatus(endpoint.replace('/health', ''));
-              
-              connected = true;
-              break;
-            }
-          } catch (e) {
-            console.log('Error parsing 400 response:', e);
-          }
-        }
-      } catch (err) {
-        console.error(`Error checking endpoint ${endpoint}:`, err);
+    try {
+      const healthStatus = await checkServerHealth(serverUrl);
+      
+      setServerStatus(healthStatus.status);
+      setFfmpegStatus(healthStatus.ffmpegStatus);
+      
+      if (healthStatus.detailedInfo) {
+        setDetailedInfo(healthStatus.detailedInfo);
       }
-    }
-    
-    if (!connected) {
-      // Try root endpoints as fallback
-      for (const endpoint of rootEndpoints) {
-        try {
-          console.log(`Trying root endpoint: ${endpoint}`);
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          
-          const timestamp = new Date().getTime();
-          const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
-            signal: controller.signal,
-            headers: {
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache',
-              'Accept': 'application/json'
-            },
-            cache: 'no-cache'
-          });
-          
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            try {
-              const data = await response.json();
-              console.log(`Root endpoint ${endpoint} responded with:`, data);
-              if (data.status === 'ok' || data.message?.includes('Server is running')) {
-                setServerStatus('online');
-                connected = true;
-                
-                // Try the ffmpeg-check endpoint separately
-                await checkFFmpegStatus(endpoint);
-                break;
-              }
-            } catch (e) {
-              // If we got a successful response but not JSON, the server is still up
-              console.log('Server response was not JSON but status was OK');
-              setServerStatus('online');
-              connected = true;
-              break;
-            }
-          } else if (response.status === 200) {
-            // Even if not JSON, a 200 response means server is up
-            setServerStatus('online');
-            connected = true;
-            break;
-          }
-        } catch (err) {
-          console.error(`Error checking root endpoint ${endpoint}:`, err);
-        }
+      
+      setStats({
+        activeStreams: healthStatus.activeStreams || 0,
+        connectedClients: healthStatus.connectedClients || 0,
+        timestamp: healthStatus.timestamp
+      });
+      
+      if (healthStatus.status === 'offline') {
+        setError('Could not connect to any Railway server endpoint. The server may be down or the URL may be incorrect.');
+      } else if (healthStatus.ffmpegStatus === 'unavailable') {
+        setError('FFmpeg is not available on the server. Streaming may not work properly.');
       }
-    }
-    
-    if (!connected) {
-      console.error('All connection attempts failed');
+      
+    } catch (err) {
+      console.error('Error checking server status:', err);
       setServerStatus('offline');
-      setError('Could not connect to any Railway server endpoint. The server may be down or the URL may be incorrect.');
+      setFfmpegStatus('unknown');
+      setError('Failed to check server status. Please check your internet connection and try again.');
     }
     
     setIsLoading(false);
   };
 
-  const checkFFmpegStatus = async (endpoint: string) => {
-    try {
-      // Normalize the endpoint
-      let ffmpegCheckEndpoint = endpoint;
-      if (ffmpegCheckEndpoint.endsWith('/health')) {
-        ffmpegCheckEndpoint = ffmpegCheckEndpoint.replace('/health', '/ffmpeg-check');
-      } else if (!ffmpegCheckEndpoint.endsWith('/')) {
-        ffmpegCheckEndpoint = `${ffmpegCheckEndpoint}/ffmpeg-check`;
-      } else {
-        ffmpegCheckEndpoint = `${ffmpegCheckEndpoint}ffmpeg-check`;
-      }
-      
-      console.log(`Checking FFmpeg at ${ffmpegCheckEndpoint}`);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const timestamp = new Date().getTime();
-      const response = await fetch(`${ffmpegCheckEndpoint}?nocache=${timestamp}`, {
-        signal: controller.signal,
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0',
-          'Accept': 'application/json'
-        },
-        cache: 'no-cache'
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        try {
-          const ffmpegData = await response.json();
-          console.log('FFmpeg check response:', ffmpegData);
-          
-          setFfmpegStatus(ffmpegData.ffmpegAvailable ? 'available' : 'unavailable');
-          setDetailedInfo(ffmpegData);
-          
-          if (!ffmpegData.ffmpegAvailable) {
-            setError('FFmpeg is not available on the server. Streaming may not work properly.');
-          }
-        } catch (e) {
-          // If response is not JSON but status is OK, assume FFmpeg is available
-          console.log('FFmpeg check response is not JSON but status is OK');
-          setFfmpegStatus('available');
-        }
-      } else {
-        // Try alternative HTTP method
-        try {
-          const rootResponse = await fetch(endpoint, {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' }
-          });
-          
-          if (rootResponse.ok) {
-            // If server is up, likely FFmpeg is available too
-            setFfmpegStatus('available');
-          }
-        } catch (err) {
-          console.error('Error checking server root:', err);
-        }
-      }
-    } catch (err) {
-      console.error('Error checking FFmpeg status:', err);
-    }
-  };
-
   useEffect(() => {
-    checkServerStatus();
+    checkStatus();
     
-    // Add periodic check every 15 seconds (reduced from 30 for more responsiveness)
+    // Check status every 15 seconds
     const interval = setInterval(() => {
-      checkServerStatus();
+      checkStatus();
     }, 15000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [serverUrl]);
 
   const formatTimestamp = (timestamp?: string) => {
     if (!timestamp) return 'Unknown';
@@ -289,6 +81,15 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     }
   };
 
+  const getStatusMessage = () => {
+    if (serverStatus === 'online') {
+      return ffmpegStatus === 'available' 
+        ? 'Railway server is online and ready to process streams.' 
+        : 'Railway server is online but FFmpeg is not available. Streaming will not work.';
+    }
+    return 'Railway server appears to be offline. Please check your deployment.';
+  };
+
   return (
     <div className="space-y-4 p-4 bg-black/20 rounded-lg">
       <div className="flex items-center justify-between">
@@ -297,7 +98,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
           variant="ghost"
           size="sm"
           className="h-8 w-8 rounded-full"
-          onClick={checkServerStatus}
+          onClick={checkStatus}
           disabled={isLoading}
         >
           <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
@@ -378,11 +179,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
       </div>
       
       <div className="text-xs text-white/60 mt-2">
-        {serverStatus === 'online' ? (
-          <p>The Railway server is online and {ffmpegStatus === 'available' ? 'ready' : 'not ready'} to process streams.</p>
-        ) : (
-          <p>The Railway server appears to be offline. Please check your deployment.</p>
-        )}
+        <p>{getStatusMessage()}</p>
       </div>
       
       {detailedInfo && (

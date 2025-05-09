@@ -3,10 +3,10 @@
 nixPkgs = ["nodejs_20", "ffmpeg", "curl"]
 
 [phases.install]
-cmds = ["npm install", "npm install express-cors"]
+cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm run build", "npm prune --production", "npm install express-cors"]
 
 [start]
 cmd = "node server.js"

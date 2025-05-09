@@ -13,19 +13,19 @@ RUN ffmpeg -version
 # Copy package files first for caching
 COPY package*.json ./
 
-# Install production dependencies
-RUN npm ci --only=production
+# Install ALL dependencies (including dev dependencies needed for build)
+RUN npm ci
 
 # Copy all other files
 COPY . .
 
-# Set NODE_ENV to production
-ENV NODE_ENV=production
-
 # Build the application
 RUN npm run build
 
-# Add express-cors dependency
+# Clean up dev dependencies to make the image smaller
+RUN npm prune --production
+
+# Install express-cors dependency
 RUN npm install express-cors
 
 # Install production-only diagnostic tools

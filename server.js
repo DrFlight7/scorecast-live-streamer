@@ -9,34 +9,38 @@ import cors from 'express-cors';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Use PORT env var from Railway or fallback to 8080
+const PORT = process.env.PORT || 8080;
 
-// Add CORS support
+const app = express();
+
+// Add CORS support with more permissive configuration
 app.use(cors({
   allowedOrigins: ['*'],
-  headers: ['Content-Type', 'Authorization']
+  headers: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Additional CORS headers for all routes
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  next();
+});
 
 // Middleware to parse JSON
 app.use(express.json());
 
 // Explicit OPTIONS handler for preflight requests
 app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.sendStatus(200);
 });
 
 // Health check endpoint with improved headers
 app.get('/health', (req, res) => {
-  // Set headers to prevent caching and allow CORS
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.header('Pragma', 'no-cache');
-  res.header('Expires', '0');
-  
   // Check if FFmpeg is available
   let ffmpegAvailable = false;
   let ffmpegVersion = null;
@@ -78,18 +82,12 @@ app.get('/health', (req, res) => {
     environment: envInfo,
     activeStreams: 0,
     connectedClients: 0,
-    serverVersion: '1.0.1' // Added version to help with debugging
+    serverVersion: '1.0.2' // Increment version to help with debugging
   });
 });
 
-// Add FFmpeg-specific check endpoint with CORS headers
+// Add FFmpeg-specific check endpoint
 app.get('/ffmpeg-check', (req, res) => {
-  // Set headers to prevent caching and allow CORS
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.header('Pragma', 'no-cache');
-  res.header('Expires', '0');
-  
   try {
     const ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
@@ -122,8 +120,6 @@ app.get('/ffmpeg-check', (req, res) => {
 
 // Add a root endpoint for basic connectivity testing
 app.get('/', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.status(200).json({
     status: 'ok',
     message: 'Railway FFmpeg Server is running',

@@ -1,9 +1,9 @@
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "ffmpeg"]
+nixPkgs = ["nodejs_20", "ffmpeg", "curl"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm install", "npm install express-cors"]
 
 [phases.build]
 cmds = ["npm run build"]
@@ -13,3 +13,7 @@ cmd = "node server.js"
 
 [env]
 NODE_ENV = "production"
+PORT = "8080"
+
+# Add CORS headers configuration
+CORS_ALLOW_ORIGIN = "*"

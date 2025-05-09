@@ -32,15 +32,18 @@ export interface StreamRelayControls {
   checkServerStatus: () => Promise<boolean>;
 }
 
-// Endpoint for the Railway FFmpeg server
-const DEFAULT_RELAY_ENDPOINT = 'wss://scorecast-live-streamer-production.up.railway.app/stream';
+// List of potential Railway Endpoints
+const RAILWAY_SERVER_ENDPOINTS = [
+  'wss://scorecast-live-streamer-production.up.railway.app/stream',
+  'wss://scorecast-live-streamer-production.railway.app/stream'
+];
 
 export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelayState, StreamRelayControls] => {
   const {
     autoReconnect = true,
     maxReconnectAttempts = 5,
     reconnectInterval = 5000,
-    wsEndpoint = DEFAULT_RELAY_ENDPOINT,
+    wsEndpoint = RAILWAY_SERVER_ENDPOINTS[0],
   } = options;
 
   const [state, setState] = useState<StreamRelayState>({
@@ -160,27 +163,36 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   const checkServerStatus = useCallback(async (): Promise<boolean> => {
     try {
       console.log('Checking Railway server status');
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
       
       // Define multiple possible endpoints to try
-      const endpoints = [
-        'https://scorecast-live-streamer-production.up.railway.app/health',
-        'https://scorecast-live-streamer-production.up.railway.app/',
-        'https://scorecast-live-streamer-production.railway.app/health',
-        'https://scorecast-live-streamer-production.railway.app/'
-      ];
+      const httpEndpoints = RAILWAY_SERVER_ENDPOINTS.map(endpoint => {
+        return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
+      });
+      
+      // Add direct endpoints too
+      httpEndpoints.push('https://scorecast-live-streamer-production.up.railway.app/health');
+      httpEndpoints.push('https://scorecast-live-streamer-production.railway.app/health');
+      
+      // Add root endpoints as fallback
+      httpEndpoints.push('https://scorecast-live-streamer-production.up.railway.app/');
+      httpEndpoints.push('https://scorecast-live-streamer-production.railway.app/');
       
       // Try each endpoint
-      for (const endpoint of endpoints) {
+      for (const endpoint of httpEndpoints) {
         console.log(`Trying endpoint: ${endpoint}`);
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
           const response = await fetch(endpoint, {
             signal: controller.signal,
             headers: {
-              'Cache-Control': 'no-cache',
-              'Pragma': 'no-cache'
-            }
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+              'Accept': 'application/json'
+            },
+            cache: 'no-cache' // Force bypassing the cache
           });
           
           clearTimeout(timeoutId);
@@ -209,13 +221,38 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         }
       }
       
+      // Try WebSocket connection directly as a last resort
+      try {
+        console.log('Trying direct WebSocket connection...');
+        return new Promise((resolve) => {
+          const socket = new WebSocket(wsEndpoint);
+          const timeoutId = setTimeout(() => {
+            socket.close();
+            resolve(false);
+          }, 3000);
+          
+          socket.onopen = () => {
+            clearTimeout(timeoutId);
+            socket.close();
+            resolve(true);
+          };
+          
+          socket.onerror = () => {
+            clearTimeout(timeoutId);
+            resolve(false);
+          };
+        });
+      } catch (err) {
+        console.warn('Failed WebSocket connection attempt:', err);
+      }
+      
       console.log('Server status checks failed - server appears to be offline');
       return false;
     } catch (err) {
       console.error('Error checking server status:', err);
       return false;
     }
-  }, []);
+  }, [wsEndpoint]);
 
   // Function to connect to the WebSocket server
   const connect = useCallback(async (): Promise<boolean> => {
@@ -239,185 +276,215 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         return false;
       }
       
-      console.log('Connecting to Railway WebSocket server:', wsEndpoint);
-      const socket = new WebSocket(wsEndpoint);
-      socketRef.current = socket;
-
-      return new Promise((resolve) => {
-        socket.onopen = () => {
-          console.log('WebSocket connection to Railway server established');
-          setState(prev => ({ 
-            ...prev, 
-            isConnected: true, 
-            status: 'connected',
-            error: null 
-          }));
-          reconnectAttemptsRef.current = 0;
+      // Try all possible WebSocket endpoints in order
+      for (const endpoint of RAILWAY_SERVER_ENDPOINTS) {
+        console.log(`Attempting WebSocket connection to: ${endpoint}`);
+        
+        try {
+          const socket = new WebSocket(endpoint);
+          socketRef.current = socket;
           
-          // Start heartbeat to keep connection alive and measure latency
-          heartbeatTimerRef.current = setInterval(() => {
-            sendHeartbeat();
-          }, 15000) as unknown as number;
-          
-          resolve(true);
-        };
-
-        socket.onclose = (event) => {
-          console.log('Railway WebSocket connection closed:', event);
-          const wasConnected = state.isConnected;
-          
-          setState(prev => ({ 
-            ...prev, 
-            isConnected: false, 
-            isStreaming: false,
-            status: 'disconnected',
-          }));
-
-          if (statsTimerRef.current) {
-            clearInterval(statsTimerRef.current);
-            statsTimerRef.current = null;
-          }
-          
-          if (heartbeatTimerRef.current) {
-            clearInterval(heartbeatTimerRef.current);
-            heartbeatTimerRef.current = null;
-          }
-
-          if (wasConnected) {
-            toast.error("Stream connection lost", {
-              description: "The connection to the streaming server was lost"
-            });
-          }
-
-          // Attempt to reconnect if enabled
-          if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
-            reconnectAttemptsRef.current += 1;
-            
-            toast.info(`Reconnecting (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
-            
-            reconnectTimerRef.current = setTimeout(() => {
-              connect();
-            }, reconnectInterval) as unknown as number;
-          } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-            setState(prev => ({ 
-              ...prev, 
-              error: `Failed to reconnect after ${maxReconnectAttempts} attempts` 
-            }));
-            
-            toast.error("Reconnect failed", {
-              description: `Could not reconnect to the streaming server after ${maxReconnectAttempts} attempts`
-            });
-            
-            resolve(false);
-          }
-        };
-
-        socket.onerror = (error) => {
-          console.error('Railway WebSocket error:', error);
-          setState(prev => ({ 
-            ...prev, 
-            error: 'Connection error with Railway streaming server' 
-          }));
-          resolve(false);
-        };
-
-        socket.onmessage = (event) => {
-          try {
-            // Handle text messages (control messages)
-            if (typeof event.data === 'string') {
-              const data = JSON.parse(event.data);
-              console.log('Railway WebSocket message received:', data);
-              
-              // Handle different message types
-              switch (data.type) {
-                case 'connection':
-                  if (data.status === 'connected') {
-                    toast.success("Connected to Railway streaming server");
-                  }
-                  break;
-                  
-                case 'stream-status':
-                  if (data.status === 'live') {
-                    setState(prev => ({ 
-                      ...prev, 
-                      isStreaming: true, 
-                      status: 'streaming',
-                      stats: {
-                        ...prev.stats,
-                        startTime: Date.now(),
-                        duration: 0,
-                        ffmpegStatus: data.ffmpegStatus || 'active',
-                        streamHealth: data.streamHealth || 'good'
-                      }
-                    }));
-                    
-                    // Start stats update timer
-                    statsTimerRef.current = setInterval(updateStats, 1000) as unknown as number;
-                    
-                    toast.success("Stream started", { 
-                      description: "Your Facebook stream is now live" 
-                    });
-                  } else if (data.status === 'stopped') {
-                    setState(prev => ({ 
-                      ...prev, 
-                      isStreaming: false, 
-                      status: 'connected',
-                      stats: {
-                        ...prev.stats,
-                        startTime: null,
-                        duration: 0,
-                        ffmpegStatus: undefined,
-                        streamHealth: undefined
-                      }
-                    }));
-                    
-                    if (statsTimerRef.current) {
-                      clearInterval(statsTimerRef.current);
-                      statsTimerRef.current = null;
-                    }
-                    
-                    toast.info("Stream ended", { 
-                      description: "Your Facebook stream has been stopped" 
-                    });
-                  }
-                  break;
-                  
-                case 'ffmpeg-status':
-                  // Update FFmpeg status from Railway server
-                  setState(prev => ({
-                    ...prev,
-                    stats: {
-                      ...prev.stats,
-                      ffmpegStatus: data.status,
-                      streamHealth: data.health
-                    }
-                  }));
-                  break;
-                  
-                case 'pong':
-                  if (lastPingTimeRef.current) {
-                    const latency = Date.now() - lastPingTimeRef.current;
-                    console.log(`Railway server latency: ${latency}ms`);
-                    lastPingTimeRef.current = null;
-                  }
-                  break;
-                  
-                case 'error':
-                  toast.error("Streaming error", { 
-                    description: data.message || "An unknown error occurred with the Railway streaming server" 
-                  });
-                  break;
+          return await new Promise<boolean>((resolve) => {
+            const timeoutId = setTimeout(() => {
+              if (socketRef.current === socket) {
+                socket.close();
+                console.warn(`WebSocket connection to ${endpoint} timed out`);
+                resolve(false);
               }
-            } 
-            // Handle binary messages (acknowledgements or other binary data)
-            else {
-              console.log('Received binary data from Railway server');
-            }
-          } catch (err) {
-            console.error('Error parsing Railway WebSocket message:', err);
-          }
-        };
-      });
+            }, 5000);
+            
+            socket.onopen = () => {
+              clearTimeout(timeoutId);
+              console.log(`WebSocket connection to ${endpoint} established`);
+              setState(prev => ({ 
+                ...prev, 
+                isConnected: true, 
+                status: 'connected',
+                error: null 
+              }));
+              
+              reconnectAttemptsRef.current = 0;
+              
+              // Start heartbeat to keep connection alive and measure latency
+              heartbeatTimerRef.current = setInterval(() => {
+                sendHeartbeat();
+              }, 15000) as unknown as number;
+              
+              resolve(true);
+            };
+            
+            socket.onerror = () => {
+              clearTimeout(timeoutId);
+              console.error(`WebSocket connection to ${endpoint} failed`);
+              if (socketRef.current === socket) {
+                socketRef.current = null;
+              }
+              resolve(false);
+            };
+            
+            // Rest of WebSocket event handlers
+            socket.onclose = (event) => {
+              console.log(`Railway WebSocket connection to ${endpoint} closed:`, event);
+              const wasConnected = state.isConnected;
+              
+              if (socketRef.current === socket) {
+                setState(prev => ({ 
+                  ...prev, 
+                  isConnected: false, 
+                  isStreaming: false,
+                  status: 'disconnected',
+                }));
+                
+                if (statsTimerRef.current) {
+                  clearInterval(statsTimerRef.current);
+                  statsTimerRef.current = null;
+                }
+                
+                if (heartbeatTimerRef.current) {
+                  clearInterval(heartbeatTimerRef.current);
+                  heartbeatTimerRef.current = null;
+                }
+                
+                if (wasConnected) {
+                  toast.error("Stream connection lost", {
+                    description: "The connection to the streaming server was lost"
+                  });
+                }
+                
+                // Attempt to reconnect if enabled
+                if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
+                  reconnectAttemptsRef.current += 1;
+                  
+                  toast.info(`Reconnecting (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
+                  
+                  reconnectTimerRef.current = setTimeout(() => {
+                    connect();
+                  }, reconnectInterval) as unknown as number;
+                } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+                  setState(prev => ({ 
+                    ...prev, 
+                    error: `Failed to reconnect after ${maxReconnectAttempts} attempts` 
+                  }));
+                  
+                  toast.error("Reconnect failed", {
+                    description: `Could not reconnect to the streaming server after ${maxReconnectAttempts} attempts`
+                  });
+                }
+                
+                socketRef.current = null;
+              }
+            };
+            
+            socket.onmessage = (event) => {
+              try {
+                // Handle text messages (control messages)
+                if (typeof event.data === 'string') {
+                  const data = JSON.parse(event.data);
+                  console.log('Railway WebSocket message received:', data);
+                  
+                  // Handle different message types
+                  switch (data.type) {
+                    case 'connection':
+                      if (data.status === 'connected') {
+                        toast.success("Connected to Railway streaming server");
+                      }
+                      break;
+                      
+                    case 'stream-status':
+                      if (data.status === 'live') {
+                        setState(prev => ({ 
+                          ...prev, 
+                          isStreaming: true, 
+                          status: 'streaming',
+                          stats: {
+                            ...prev.stats,
+                            startTime: Date.now(),
+                            duration: 0,
+                            ffmpegStatus: data.ffmpegStatus || 'active',
+                            streamHealth: data.streamHealth || 'good'
+                          }
+                        }));
+                        
+                        // Start stats update timer
+                        statsTimerRef.current = setInterval(updateStats, 1000) as unknown as number;
+                        
+                        toast.success("Stream started", { 
+                          description: "Your Facebook stream is now live" 
+                        });
+                      } else if (data.status === 'stopped') {
+                        setState(prev => ({ 
+                          ...prev, 
+                          isStreaming: false, 
+                          status: 'connected',
+                          stats: {
+                            ...prev.stats,
+                            startTime: null,
+                            duration: 0,
+                            ffmpegStatus: undefined,
+                            streamHealth: undefined
+                          }
+                        }));
+                        
+                        if (statsTimerRef.current) {
+                          clearInterval(statsTimerRef.current);
+                          statsTimerRef.current = null;
+                        }
+                        
+                        toast.info("Stream ended", { 
+                          description: "Your Facebook stream has been stopped" 
+                        });
+                      }
+                      break;
+                      
+                    case 'ffmpeg-status':
+                      // Update FFmpeg status from Railway server
+                      setState(prev => ({
+                        ...prev,
+                        stats: {
+                          ...prev.stats,
+                          ffmpegStatus: data.status,
+                          streamHealth: data.health
+                        }
+                      }));
+                      break;
+                      
+                    case 'pong':
+                      if (lastPingTimeRef.current) {
+                        const latency = Date.now() - lastPingTimeRef.current;
+                        console.log(`Railway server latency: ${latency}ms`);
+                        lastPingTimeRef.current = null;
+                      }
+                      break;
+                      
+                    case 'error':
+                      toast.error("Streaming error", { 
+                        description: data.message || "An unknown error occurred with the Railway streaming server" 
+                      });
+                      break;
+                  }
+                } 
+                // Handle binary messages (acknowledgements or other binary data)
+                else {
+                  console.log('Received binary data from Railway server');
+                }
+              } catch (err) {
+                console.error('Error parsing Railway WebSocket message:', err);
+              }
+            };
+          });
+        } catch (err) {
+          console.error(`Failed to connect to WebSocket endpoint ${endpoint}:`, err);
+        }
+      }
+      
+      // If we reach here, all connection attempts failed
+      setState(prev => ({ 
+        ...prev, 
+        status: 'error',
+        error: 'Failed to connect to any Railway streaming server endpoint' 
+      }));
+      return false;
+      
     } catch (err) {
       console.error('Failed to connect to Railway WebSocket server:', err);
       setState(prev => ({ 
@@ -427,7 +494,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
       }));
       return false;
     }
-  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, wsEndpoint, sendHeartbeat, checkServerStatus]);
+  }, [cleanUp, autoReconnect, maxReconnectAttempts, reconnectInterval, state.isConnected, updateStats, sendHeartbeat, checkServerStatus]);
 
   // Function to disconnect from the WebSocket server
   const disconnect = useCallback(() => {

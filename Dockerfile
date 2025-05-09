@@ -2,7 +2,7 @@
 FROM node:20-alpine
 
 # Install FFmpeg with all required dependencies
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg curl
 
 # Set the working directory
 WORKDIR /app
@@ -13,7 +13,8 @@ RUN ffmpeg -version
 # Copy package files first for caching
 COPY package*.json ./
 
-RUN npm install
+# Install production dependencies
+RUN npm ci --only=production
 
 # Copy all other files
 COPY . .
@@ -21,11 +22,17 @@ COPY . .
 # Set NODE_ENV to production
 ENV NODE_ENV=production
 
-# Build if needed
+# Build the application
 RUN npm run build
 
-# Expose the port
-EXPOSE 3000
+# Add express-cors dependency
+RUN npm install express-cors
 
-# Use node to run our server.js
+# Install production-only diagnostic tools
+RUN npm install --no-save pino pino-pretty
+
+# Expose the port - Railway will set PORT env var
+EXPOSE ${PORT:-3000}
+
+# Start with proper binding to 0.0.0.0
 CMD ["node", "server.js"]

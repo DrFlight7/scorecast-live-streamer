@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import cors from 'express-cors';
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -11,11 +12,31 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Add CORS support
+app.use(cors({
+  allowedOrigins: ['*'],
+  headers: ['Content-Type', 'Authorization']
+}));
+
 // Middleware to parse JSON
 app.use(express.json());
 
-// Health check endpoint
+// Explicit OPTIONS handler for preflight requests
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.sendStatus(200);
+});
+
+// Health check endpoint with improved headers
 app.get('/health', (req, res) => {
+  // Set headers to prevent caching and allow CORS
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  
   // Check if FFmpeg is available
   let ffmpegAvailable = false;
   let ffmpegVersion = null;
@@ -39,6 +60,7 @@ app.get('/health', (req, res) => {
   // Add detailed environment info
   const envInfo = {
     NODE_ENV: process.env.NODE_ENV || 'development',
+    PORT: PORT,
     PATH: process.env.PATH,
     platform: process.platform,
     arch: process.arch,
@@ -55,12 +77,19 @@ app.get('/health', (req, res) => {
     error,
     environment: envInfo,
     activeStreams: 0,
-    connectedClients: 0
+    connectedClients: 0,
+    serverVersion: '1.0.1' // Added version to help with debugging
   });
 });
 
-// Add FFmpeg-specific check endpoint
+// Add FFmpeg-specific check endpoint with CORS headers
 app.get('/ffmpeg-check', (req, res) => {
+  // Set headers to prevent caching and allow CORS
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  
   try {
     const ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
@@ -72,7 +101,8 @@ app.get('/ffmpeg-check', (req, res) => {
       environment: {
         NODE_ENV: process.env.NODE_ENV || 'development',
         platform: process.platform,
-        arch: process.arch
+        arch: process.arch,
+        PORT: PORT
       }
     });
   } catch (err) {
@@ -83,10 +113,35 @@ app.get('/ffmpeg-check', (req, res) => {
       environment: {
         NODE_ENV: process.env.NODE_ENV || 'development',
         platform: process.platform,
-        arch: process.arch
+        arch: process.arch,
+        PORT: PORT
       }
     });
   }
+});
+
+// Add a root endpoint for basic connectivity testing
+app.get('/', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.status(200).json({
+    status: 'ok',
+    message: 'Railway FFmpeg Server is running',
+    endpoints: {
+      health: '/health',
+      ffmpegCheck: '/ffmpeg-check',
+      stream: '/stream'
+    }
+  });
+});
+
+// Handle WebSocket connections or redirects for /stream
+app.get('/stream', (req, res) => {
+  // If not WebSocket request, return helpful error
+  res.status(400).json({
+    error: "WebSocket connection required for this endpoint",
+    message: "This endpoint requires a WebSocket connection, not HTTP"
+  });
 });
 
 // Serve static files from the 'dist' directory
@@ -98,7 +153,7 @@ app.get('*', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
   
   // Test FFmpeg on startup and log the result

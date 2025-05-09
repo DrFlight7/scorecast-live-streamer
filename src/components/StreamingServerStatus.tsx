@@ -20,57 +20,75 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
   const [error, setError] = useState<string | null>(null);
   const [detailedInfo, setDetailedInfo] = useState<any>(null);
 
+  // List of possible server endpoints (ordered by priority)
+  const SERVER_ENDPOINTS = [
+    'https://scorecast-live-streamer-production.up.railway.app',
+    'wss://scorecast-live-streamer-production.up.railway.app/stream',
+    'https://scorecast-live-streamer-production.railway.app',
+    'wss://scorecast-live-streamer-production.railway.app/stream'
+  ];
+
   // The actual Railway endpoint might have changed or might be using a different domain
   // Let's try to determine the correct endpoint
-  const determineCorrectEndpoint = (url: string) => {
-    // If the URL contains "railway.app" but not "production.up.railway.app"
-    if (url.includes('railway.app') && !url.includes('production.up.railway.app')) {
-      return url.replace('wss://', 'https://').replace('/stream', '');
+  const determineCorrectEndpoints = () => {
+    const endpoints = [...SERVER_ENDPOINTS];
+    
+    // Add user-provided URL if it's not already in the list
+    if (serverUrl && !endpoints.includes(serverUrl)) {
+      if (serverUrl.startsWith('wss://')) {
+        // Add both WebSocket and HTTP versions
+        endpoints.unshift(serverUrl);
+        endpoints.unshift(serverUrl.replace('wss://', 'https://').replace('/stream', ''));
+      } else if (serverUrl.startsWith('https://')) {
+        // Add both HTTP and WebSocket versions
+        endpoints.unshift(serverUrl);
+        if (!serverUrl.endsWith('/stream')) {
+          endpoints.unshift(`${serverUrl}/stream`.replace('https://', 'wss://'));
+        }
+      }
     }
     
-    // If the URL is the WebSocket URL, convert it to HTTP
-    if (url.startsWith('wss://')) {
-      return url.replace('wss://', 'https://').replace('/stream', '');
-    }
-    
-    // Default case, use as is
-    return url;
+    return endpoints.map(endpoint => {
+      if (endpoint.startsWith('wss://')) {
+        return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
+      }
+      return endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
+    });
   };
 
   const checkServerStatus = async () => {
     setIsLoading(true);
     setError(null);
 
-    // Try multiple potential endpoints
-    const endpoints = [
-      determineCorrectEndpoint(serverUrl),
-      'https://scorecast-live-streamer-production.up.railway.app',
-      'https://scorecast-live-streamer-production.up.railway.app/health',
-      serverUrl.replace('wss://', 'https://'),
-      serverUrl
-    ];
+    // Get all potential health check endpoints
+    const healthEndpoints = determineCorrectEndpoints();
 
-    console.log('Attempting to connect to Railway server using endpoints:', endpoints);
+    console.log('Attempting to connect to Railway server using endpoints:', healthEndpoints);
     
     let connected = false;
     
     // Try each endpoint until one works
-    for (const endpoint of endpoints) {
+    for (const endpoint of healthEndpoints) {
       try {
         console.log(`Trying endpoint: ${endpoint}`);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        const response = await fetch(`${endpoint}/health`, {
+        const response = await fetch(endpoint, {
           signal: controller.signal,
           headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          // Add random parameter to bypass cache
+          cache: 'no-cache'
         });
         
         clearTimeout(timeoutId);
-        console.log(`Response from ${endpoint}/health:`, response.status);
+        console.log(`Response from ${endpoint}:`, response.status);
         
         if (response.ok) {
           const data = await response.json();
@@ -104,7 +122,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
               setServerStatus('online');
               
               // Try the ffmpeg-check endpoint separately
-              await checkFFmpegStatus(endpoint);
+              await checkFFmpegStatus(endpoint.replace('/health', ''));
               
               connected = true;
               break;
@@ -119,6 +137,48 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     }
     
     if (!connected) {
+      // Try one more time with just the root endpoint for each server
+      const rootEndpoints = SERVER_ENDPOINTS.map(endpoint => {
+        if (endpoint.startsWith('wss://')) {
+          return endpoint.replace('wss://', 'https://').replace('/stream', '');
+        }
+        return endpoint;
+      });
+      
+      for (const endpoint of rootEndpoints) {
+        try {
+          console.log(`Trying root endpoint: ${endpoint}`);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          
+          const response = await fetch(endpoint, {
+            signal: controller.signal,
+            headers: {
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache',
+              'Accept': 'application/json'
+            },
+            cache: 'no-cache'
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            console.log(`Root endpoint ${endpoint} is responding`);
+            setServerStatus('online');
+            connected = true;
+            
+            // Try the ffmpeg-check endpoint separately
+            await checkFFmpegStatus(endpoint);
+            break;
+          }
+        } catch (err) {
+          console.error(`Error checking root endpoint ${endpoint}:`, err);
+        }
+      }
+    }
+    
+    if (!connected) {
       console.error('All connection attempts failed');
       setServerStatus('offline');
       setError('Could not connect to any Railway server endpoint. The server may be down or the URL may be incorrect.');
@@ -129,16 +189,29 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
 
   const checkFFmpegStatus = async (endpoint: string) => {
     try {
-      console.log(`Checking FFmpeg at ${endpoint}/ffmpeg-check`);
+      // Normalize the endpoint
+      let ffmpegCheckEndpoint = endpoint;
+      if (ffmpegCheckEndpoint.endsWith('/health')) {
+        ffmpegCheckEndpoint = ffmpegCheckEndpoint.replace('/health', '/ffmpeg-check');
+      } else if (!ffmpegCheckEndpoint.endsWith('/')) {
+        ffmpegCheckEndpoint = `${ffmpegCheckEndpoint}/ffmpeg-check`;
+      } else {
+        ffmpegCheckEndpoint = `${ffmpegCheckEndpoint}ffmpeg-check`;
+      }
+      
+      console.log(`Checking FFmpeg at ${ffmpegCheckEndpoint}`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(`${endpoint}/ffmpeg-check`, {
+      const response = await fetch(ffmpegCheckEndpoint, {
         signal: controller.signal,
         headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+          'Accept': 'application/json'
+        },
+        cache: 'no-cache'
       });
       
       clearTimeout(timeoutId);
@@ -171,7 +244,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     }, 30000);
     
     return () => clearInterval(interval);
-  }, [serverUrl]);
+  }, []);
 
   const formatTimestamp = (timestamp?: string) => {
     if (!timestamp) return 'Unknown';

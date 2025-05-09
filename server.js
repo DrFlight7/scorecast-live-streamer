@@ -48,7 +48,7 @@ app.get('/health', (req, res) => {
   let error = null;
   
   try {
-    // Always use the system-wide ffmpeg in production
+    // Use system-wide ffmpeg command (we know it's installed from our Dockerfile/nixpacks)
     ffmpegPath = 'ffmpeg';
     console.log(`Attempting to check FFmpeg at: ${ffmpegPath}`);
     
@@ -72,8 +72,11 @@ app.get('/health', (req, res) => {
     workingDirectory: process.cwd()
   };
   
+  // Send response - always use status 200 with health details in body
+  // This helps with detection across different environments
   res.status(200).json({
-    status: 'ok',
+    status: ffmpegAvailable ? 'ok' : 'error',
+    message: ffmpegAvailable ? 'Server is running' : 'FFmpeg not available',
     timestamp: new Date().toISOString(),
     ffmpegAvailable,
     ffmpegVersion,
@@ -82,14 +85,25 @@ app.get('/health', (req, res) => {
     environment: envInfo,
     activeStreams: 0,
     connectedClients: 0,
-    serverVersion: '1.0.3' // Increment version to help with debugging
+    serverVersion: '1.0.4' // Increment version for tracking
   });
+});
+
+// Add simple text response for tools that don't parse JSON
+app.get('/health-plain', (req, res) => {
+  try {
+    // Use system-wide ffmpeg command
+    const output = execSync('ffmpeg -version').toString();
+    res.status(200).send('OK: FFmpeg available');
+  } catch (err) {
+    res.status(200).send('ERROR: FFmpeg not available');
+  }
 });
 
 // Add FFmpeg-specific check endpoint
 app.get('/ffmpeg-check', (req, res) => {
   try {
-    // Always use system ffmpeg in production
+    // Use system ffmpeg in production
     const ffmpegPath = 'ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
     
@@ -126,10 +140,17 @@ app.get('/', (req, res) => {
     message: 'Railway FFmpeg Server is running',
     endpoints: {
       health: '/health',
+      healthPlain: '/health-plain',
       ffmpegCheck: '/ffmpeg-check',
       stream: '/stream'
-    }
+    },
+    timestamp: new Date().toISOString()
   });
+});
+
+// Add a ping endpoint that doesn't require JSON parsing
+app.get('/ping', (req, res) => {
+  res.status(200).send('pong');
 });
 
 // Handle WebSocket connections or redirects for /stream
@@ -155,7 +176,7 @@ app.listen(PORT, '0.0.0.0', () => {
   
   // Test FFmpeg on startup and log the result
   try {
-    // Always use system ffmpeg in production
+    // Use system ffmpeg command 
     const ffmpegPath = 'ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
     console.log(`FFmpeg is available: ${output.split('\n')[0]}`);

@@ -20,10 +20,13 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
-// List of possible Railway servers to try
+// Expanded list of possible Railway servers to try
 const RAILWAY_SERVER_ENDPOINTS = [
   'https://scorecast-live-streamer-production.up.railway.app',
-  'https://scorecast-live-streamer-production.railway.app'
+  'https://scorecast-live-streamer-production.railway.app',
+  'https://scorecast-live-streamer.up.railway.app',
+  'https://scorecast-live-production.up.railway.app',
+  'https://scorecast-live-production.railway.app'
 ];
 
 const StreamSetup = () => {
@@ -61,7 +64,73 @@ const StreamSetup = () => {
       // Try each possible endpoint
       for (const endpoint of RAILWAY_SERVER_ENDPOINTS) {
         try {
-          // Try root endpoint first - simplest check
+          // Try multiple check approaches for better reliability
+          
+          // Try health endpoint first
+          const healthCheck = async () => {
+            try {
+              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
+              const timestamp = new Date().getTime();
+              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0',
+                  'Accept': 'application/json'
+                },
+                cache: 'no-cache'
+              });
+              
+              if (response.ok) {
+                return { available: true, url: endpoint };
+              }
+              return { available: false };
+            } catch (e) {
+              return { available: false };
+            }
+          };
+          
+          // Try plain health check (returns text, not JSON)
+          const plainHealthCheck = async () => {
+            try {
+              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health-plain` : `${endpoint}/health-plain`;
+              const timestamp = new Date().getTime();
+              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0',
+                  'Accept': 'text/plain'
+                }
+              });
+              
+              if (response.ok) {
+                return { available: true, url: endpoint };
+              }
+              return { available: false };
+            } catch (e) {
+              return { available: false };
+            }
+          };
+          
+          // Try ping endpoint
+          const pingCheck = async () => {
+            try {
+              const pingEndpoint = endpoint.endsWith('/') ? `${endpoint}ping` : `${endpoint}/ping`;
+              const response = await fetch(pingEndpoint, {
+                headers: { 'Accept': 'text/plain' }
+              });
+              
+              if (response.ok) {
+                return { available: true, url: endpoint };
+              }
+              return { available: false };
+            } catch (e) {
+              return { available: false };
+            }
+          };
+          
+          // Try root endpoint as fallback
           const rootCheck = async () => {
             try {
               const timestamp = new Date().getTime();
@@ -83,45 +152,40 @@ const StreamSetup = () => {
             }
           };
           
-          // Try health endpoint as fallback
-          const healthCheck = async () => {
-            try {
-              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
-              const timestamp = new Date().getTime();
-              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
-                headers: {
-                  'Cache-Control': 'no-cache, no-store, must-revalidate',
-                  'Pragma': 'no-cache',
-                  'Expires': '0'
-                },
-                cache: 'no-cache'
-              });
-              
-              if (response.ok) {
-                return { available: true, url: endpoint };
-              }
-              return { available: false };
-            } catch (e) {
-              return { available: false };
-            }
-          };
-          
-          // Try both checks
-          const rootResult = await rootCheck();
-          
-          if (rootResult.available) {
-            setIsRailwayAvailable(true);
-            setRailwayServerUrl(endpoint);
-            console.log(`Railway server is available at ${endpoint}`);
-            break;
-          }
-          
+          // Try all checks in order
           const healthResult = await healthCheck();
           
           if (healthResult.available) {
             setIsRailwayAvailable(true);
             setRailwayServerUrl(endpoint);
             console.log(`Railway server is available at ${endpoint} (health check)`);
+            break;
+          }
+          
+          const plainResult = await plainHealthCheck();
+          
+          if (plainResult.available) {
+            setIsRailwayAvailable(true);
+            setRailwayServerUrl(endpoint);
+            console.log(`Railway server is available at ${endpoint} (plain health check)`);
+            break;
+          }
+          
+          const pingResult = await pingCheck();
+          
+          if (pingResult.available) {
+            setIsRailwayAvailable(true);
+            setRailwayServerUrl(endpoint);
+            console.log(`Railway server is available at ${endpoint} (ping check)`);
+            break;
+          }
+          
+          const rootResult = await rootCheck();
+          
+          if (rootResult.available) {
+            setIsRailwayAvailable(true);
+            setRailwayServerUrl(endpoint);
+            console.log(`Railway server is available at ${endpoint} (root check)`);
             break;
           }
           
@@ -288,7 +352,7 @@ const StreamSetup = () => {
           </TabsContent>
           
           <TabsContent value="server" className="mt-2 space-y-6">
-            <StreamingServerStatus serverUrl="https://scorecast-live-streamer-production.up.railway.app" />
+            <StreamingServerStatus serverUrl={railwayServerUrl} />
             
             <div className="bg-white/10 p-4 rounded-lg space-y-4">
               <h3 className="text-lg font-bold text-white">Production Streaming Architecture</h3>
@@ -342,6 +406,11 @@ const StreamSetup = () => {
                     </>
                   )}
                 </div>
+                {isRailwayAvailable && (
+                  <p className="text-xs text-green-500 mt-2">
+                    Connected to: {railwayServerUrl}
+                  </p>
+                )}
               </div>
             </div>
           </TabsContent>

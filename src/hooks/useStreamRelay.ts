@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -32,10 +33,13 @@ export interface StreamRelayControls {
   checkServerStatus: () => Promise<boolean>;
 }
 
-// List of potential Railway Endpoints
+// Expanded list of potential Railway Endpoints
 const RAILWAY_SERVER_ENDPOINTS = [
   'wss://scorecast-live-streamer-production.up.railway.app/stream',
-  'wss://scorecast-live-streamer-production.railway.app/stream'
+  'wss://scorecast-live-streamer-production.railway.app/stream',
+  'wss://scorecast-live-production.up.railway.app/stream',
+  'wss://scorecast-live-production.railway.app/stream',
+  'wss://scorecast-live-streamer.railway.app/stream'
 ];
 
 export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelayState, StreamRelayControls] => {
@@ -164,18 +168,31 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     try {
       console.log('Checking Railway server status');
       
-      // Define multiple possible endpoints to try
-      const httpEndpoints = RAILWAY_SERVER_ENDPOINTS.map(endpoint => {
-        return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
-      });
-      
-      // Add direct endpoints too
-      httpEndpoints.push('https://scorecast-live-streamer-production.up.railway.app/health');
-      httpEndpoints.push('https://scorecast-live-streamer-production.railway.app/health');
-      
-      // Add root endpoints as fallback
-      httpEndpoints.push('https://scorecast-live-streamer-production.up.railway.app/');
-      httpEndpoints.push('https://scorecast-live-streamer-production.railway.app/');
+      // Define multiple possible endpoints to try with various URL patterns
+      const httpEndpoints = [
+        // Standard health endpoints
+        ...RAILWAY_SERVER_ENDPOINTS.map(endpoint => {
+          return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
+        }),
+        
+        // Direct health endpoints
+        'https://scorecast-live-streamer-production.up.railway.app/health',
+        'https://scorecast-live-streamer-production.railway.app/health',
+        'https://scorecast-live-streamer.up.railway.app/health',
+        
+        // Plain health checks (no JSON parsing)
+        'https://scorecast-live-streamer-production.up.railway.app/health-plain',
+        'https://scorecast-live-streamer-production.railway.app/health-plain',
+        
+        // Simple ping endpoints
+        'https://scorecast-live-streamer-production.up.railway.app/ping',
+        'https://scorecast-live-streamer-production.railway.app/ping',
+        
+        // Root endpoints as fallback
+        'https://scorecast-live-streamer-production.up.railway.app/',
+        'https://scorecast-live-streamer-production.railway.app/',
+        'https://scorecast-live-streamer.up.railway.app/'
+      ];
       
       // Try each endpoint
       for (const endpoint of httpEndpoints) {
@@ -184,26 +201,45 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
           
+          const timestamp = new Date().getTime();
           const response = await fetch(endpoint, {
             signal: controller.signal,
             headers: {
               'Cache-Control': 'no-cache, no-store, must-revalidate',
               'Pragma': 'no-cache',
               'Expires': '0',
-              'Accept': 'application/json'
+              'Accept': 'application/json, text/plain',
+              'X-Requested-With': 'XMLHttpRequest'
             },
             cache: 'no-cache' // Force bypassing the cache
           });
           
           clearTimeout(timeoutId);
           
-          if (response.ok) {
-            const data = await response.json();
-            console.log('Server status check response:', data);
+          // Any successful response means the server is online
+          if (response.ok || response.status === 200) {
+            console.log(`Server check successful with endpoint: ${endpoint}`);
+            
+            try {
+              // Try to parse as JSON if possible
+              const contentType = response.headers.get('content-type');
+              if (contentType && contentType.includes('application/json')) {
+                const data = await response.json();
+                console.log('Server status check response:', data);
+              } else {
+                // For text responses like /ping or /health-plain
+                const text = await response.text();
+                console.log('Server text response:', text);
+              }
+            } catch (e) {
+              // Even if parsing fails, we got a response
+              console.log('Failed to parse server response, but server is up');
+            }
+            
             return true;
           }
           
-          // If /health returns 400 with WebSocket error, the server is actually online
+          // Check for WebSocket connection message which means server is up
           // but expecting WebSocket connections
           if (response.status === 400) {
             try {
@@ -239,6 +275,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
           
           socket.onerror = () => {
             clearTimeout(timeoutId);
+            socket.close();
             resolve(false);
           };
         });
@@ -313,9 +350,9 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
               resolve(true);
             };
             
-            socket.onerror = () => {
+            socket.onerror = (event) => {
               clearTimeout(timeoutId);
-              console.error(`WebSocket connection to ${endpoint} failed`);
+              console.error(`WebSocket connection to ${endpoint} failed:`, event);
               if (socketRef.current === socket) {
                 socketRef.current = null;
               }
@@ -595,6 +632,12 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         setState(prev => ({ 
           ...prev, 
           error: 'Railway streaming server appears to be offline' 
+        }));
+      } else {
+        console.log('Railway streaming server is available');
+        setState(prev => ({
+          ...prev,
+          error: null
         }));
       }
     };

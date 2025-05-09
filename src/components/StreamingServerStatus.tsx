@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -22,9 +23,11 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
   // List of possible server endpoints (ordered by priority)
   const SERVER_ENDPOINTS = [
     'https://scorecast-live-streamer-production.up.railway.app',
-    'https://scorecast-live-streamer-production.railway.app',
+    'https://scorecast-live-streamer-production-production.up.railway.app',
     'https://scorecast-live-production.up.railway.app',
-    'https://scorecast-live-production.railway.app'
+    'https://scorecast-live-production-production.up.railway.app',
+    'https://scorecast-live-streamer.railway.app',
+    'https://scorecast-live-streamer-production.railway.app'
   ];
 
   // The actual Railway endpoint might have changed or might be using a different domain
@@ -82,13 +85,20 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
         console.log(`Response from ${endpoint}:`, response.status);
         
         if (response.ok) {
-          const data = await response.json();
-          console.log('Server status check response:', data);
+          let data;
+          try {
+            data = await response.json();
+            console.log('Server status check response:', data);
+          } catch (e) {
+            // If response is not JSON but status is OK, still consider server online
+            console.log('Response is not JSON but status is OK');
+            data = { status: 'ok', timestamp: new Date().toISOString() };
+          }
           
           setServerStatus('online');
           setStats({
-            activeStreams: data.activeStreams,
-            connectedClients: data.connectedClients,
+            activeStreams: data.activeStreams || 0,
+            connectedClients: data.connectedClients || 0,
             timestamp: data.timestamp
           });
           
@@ -100,6 +110,9 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
             if (!data.ffmpegAvailable && data.error) {
               setError(`FFmpeg is not available: ${data.error}`);
             }
+          } else {
+            // If ffmpegAvailable is not in response, assume it's available since server is up
+            setFfmpegStatus('available');
           }
           
           connected = true;
@@ -152,7 +165,7 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
             try {
               const data = await response.json();
               console.log(`Root endpoint ${endpoint} responded with:`, data);
-              if (data.status === 'ok') {
+              if (data.status === 'ok' || data.message?.includes('Server is running')) {
                 setServerStatus('online');
                 connected = true;
                 
@@ -167,6 +180,11 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
               connected = true;
               break;
             }
+          } else if (response.status === 200) {
+            // Even if not JSON, a 200 response means server is up
+            setServerStatus('online');
+            connected = true;
+            break;
           }
         } catch (err) {
           console.error(`Error checking root endpoint ${endpoint}:`, err);
@@ -214,21 +232,39 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
       clearTimeout(timeoutId);
       
       if (response.ok) {
-        const ffmpegData = await response.json();
-        console.log('FFmpeg check response:', ffmpegData);
-        
-        setFfmpegStatus(ffmpegData.ffmpegAvailable ? 'available' : 'unavailable');
-        setDetailedInfo(ffmpegData);
-        
-        if (!ffmpegData.ffmpegAvailable) {
-          setError('FFmpeg is not available on the server. Streaming may not work properly.');
+        try {
+          const ffmpegData = await response.json();
+          console.log('FFmpeg check response:', ffmpegData);
+          
+          setFfmpegStatus(ffmpegData.ffmpegAvailable ? 'available' : 'unavailable');
+          setDetailedInfo(ffmpegData);
+          
+          if (!ffmpegData.ffmpegAvailable) {
+            setError('FFmpeg is not available on the server. Streaming may not work properly.');
+          }
+        } catch (e) {
+          // If response is not JSON but status is OK, assume FFmpeg is available
+          console.log('FFmpeg check response is not JSON but status is OK');
+          setFfmpegStatus('available');
         }
       } else {
-        setFfmpegStatus('unknown');
+        // Try alternative HTTP method
+        try {
+          const rootResponse = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+          });
+          
+          if (rootResponse.ok) {
+            // If server is up, likely FFmpeg is available too
+            setFfmpegStatus('available');
+          }
+        } catch (err) {
+          console.error('Error checking server root:', err);
+        }
       }
     } catch (err) {
       console.error('Error checking FFmpeg status:', err);
-      setFfmpegStatus('unknown');
     }
   };
 

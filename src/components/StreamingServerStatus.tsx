@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -23,9 +22,9 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
   // List of possible server endpoints (ordered by priority)
   const SERVER_ENDPOINTS = [
     'https://scorecast-live-streamer-production.up.railway.app',
-    'wss://scorecast-live-streamer-production.up.railway.app/stream',
     'https://scorecast-live-streamer-production.railway.app',
-    'wss://scorecast-live-streamer-production.railway.app/stream'
+    'https://scorecast-live-production.up.railway.app',
+    'https://scorecast-live-production.railway.app'
   ];
 
   // The actual Railway endpoint might have changed or might be using a different domain
@@ -35,23 +34,10 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     
     // Add user-provided URL if it's not already in the list
     if (serverUrl && !endpoints.includes(serverUrl)) {
-      if (serverUrl.startsWith('wss://')) {
-        // Add both WebSocket and HTTP versions
-        endpoints.unshift(serverUrl);
-        endpoints.unshift(serverUrl.replace('wss://', 'https://').replace('/stream', ''));
-      } else if (serverUrl.startsWith('https://')) {
-        // Add both HTTP and WebSocket versions
-        endpoints.unshift(serverUrl);
-        if (!serverUrl.endsWith('/stream')) {
-          endpoints.unshift(`${serverUrl}/stream`.replace('https://', 'wss://'));
-        }
-      }
+      endpoints.unshift(serverUrl);
     }
     
     return endpoints.map(endpoint => {
-      if (endpoint.startsWith('wss://')) {
-        return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
-      }
       return endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
     });
   };
@@ -62,6 +48,11 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
 
     // Get all potential health check endpoints
     const healthEndpoints = determineCorrectEndpoints();
+    
+    // Also include root endpoints as fallbacks
+    const rootEndpoints = [...SERVER_ENDPOINTS, serverUrl].map(endpoint => {
+      return endpoint.endsWith('/') ? endpoint : `${endpoint}/`;
+    });
 
     console.log('Attempting to connect to Railway server using endpoints:', healthEndpoints);
     
@@ -74,7 +65,8 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         
-        const response = await fetch(endpoint, {
+        const timestamp = new Date().getTime();
+        const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
           signal: controller.signal,
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -83,7 +75,6 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
             'Accept': 'application/json',
             'X-Requested-With': 'XMLHttpRequest'
           },
-          // Add random parameter to bypass cache
           cache: 'no-cache'
         });
         
@@ -137,21 +128,15 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
     }
     
     if (!connected) {
-      // Try one more time with just the root endpoint for each server
-      const rootEndpoints = SERVER_ENDPOINTS.map(endpoint => {
-        if (endpoint.startsWith('wss://')) {
-          return endpoint.replace('wss://', 'https://').replace('/stream', '');
-        }
-        return endpoint;
-      });
-      
+      // Try root endpoints as fallback
       for (const endpoint of rootEndpoints) {
         try {
           console.log(`Trying root endpoint: ${endpoint}`);
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
           
-          const response = await fetch(endpoint, {
+          const timestamp = new Date().getTime();
+          const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
             signal: controller.signal,
             headers: {
               'Cache-Control': 'no-cache',
@@ -164,13 +149,24 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
           clearTimeout(timeoutId);
           
           if (response.ok) {
-            console.log(`Root endpoint ${endpoint} is responding`);
-            setServerStatus('online');
-            connected = true;
-            
-            // Try the ffmpeg-check endpoint separately
-            await checkFFmpegStatus(endpoint);
-            break;
+            try {
+              const data = await response.json();
+              console.log(`Root endpoint ${endpoint} responded with:`, data);
+              if (data.status === 'ok') {
+                setServerStatus('online');
+                connected = true;
+                
+                // Try the ffmpeg-check endpoint separately
+                await checkFFmpegStatus(endpoint);
+                break;
+              }
+            } catch (e) {
+              // If we got a successful response but not JSON, the server is still up
+              console.log('Server response was not JSON but status was OK');
+              setServerStatus('online');
+              connected = true;
+              break;
+            }
           }
         } catch (err) {
           console.error(`Error checking root endpoint ${endpoint}:`, err);
@@ -203,7 +199,8 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(ffmpegCheckEndpoint, {
+      const timestamp = new Date().getTime();
+      const response = await fetch(`${ffmpegCheckEndpoint}?nocache=${timestamp}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -238,10 +235,10 @@ const StreamingServerStatus = ({ serverUrl }: StreamingServerStatusProps) => {
   useEffect(() => {
     checkServerStatus();
     
-    // Add periodic check every 30 seconds
+    // Add periodic check every 15 seconds (reduced from 30 for more responsiveness)
     const interval = setInterval(() => {
       checkServerStatus();
-    }, 30000);
+    }, 15000);
     
     return () => clearInterval(interval);
   }, []);

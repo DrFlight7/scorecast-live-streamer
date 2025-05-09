@@ -48,8 +48,8 @@ app.get('/health', (req, res) => {
   let error = null;
   
   try {
-    // Determine FFmpeg path based on environment
-    ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
+    // Always use the system-wide ffmpeg in production
+    ffmpegPath = 'ffmpeg';
     console.log(`Attempting to check FFmpeg at: ${ffmpegPath}`);
     
     const output = execSync(`${ffmpegPath} -version`).toString();
@@ -82,14 +82,15 @@ app.get('/health', (req, res) => {
     environment: envInfo,
     activeStreams: 0,
     connectedClients: 0,
-    serverVersion: '1.0.2' // Increment version to help with debugging
+    serverVersion: '1.0.3' // Increment version to help with debugging
   });
 });
 
 // Add FFmpeg-specific check endpoint
 app.get('/ffmpeg-check', (req, res) => {
   try {
-    const ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
+    // Always use system ffmpeg in production
+    const ffmpegPath = 'ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
     
     res.status(200).json({
@@ -154,7 +155,8 @@ app.listen(PORT, '0.0.0.0', () => {
   
   // Test FFmpeg on startup and log the result
   try {
-    const ffmpegPath = process.env.NODE_ENV === 'production' ? 'ffmpeg' : './ffmpeg/ffmpeg';
+    // Always use system ffmpeg in production
+    const ffmpegPath = 'ffmpeg';
     const output = execSync(`${ffmpegPath} -version`).toString();
     console.log(`FFmpeg is available: ${output.split('\n')[0]}`);
   } catch (err) {

@@ -20,6 +20,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
+// List of possible Railway servers to try
+const RAILWAY_SERVER_ENDPOINTS = [
+  'https://scorecast-live-streamer-production.up.railway.app',
+  'https://scorecast-live-streamer-production.railway.app'
+];
+
 const StreamSetup = () => {
   const navigate = useNavigate();
   const { user, session } = useAuth();
@@ -41,6 +47,7 @@ const StreamSetup = () => {
   // State to track if Railway server is available
   const [isRailwayAvailable, setIsRailwayAvailable] = useState(false);
   const [isCheckingServer, setIsCheckingServer] = useState(false);
+  const [railwayServerUrl, setRailwayServerUrl] = useState(RAILWAY_SERVER_ENDPOINTS[0]);
   
   // Check if user signed in with YouTube/Google or Facebook
   const isYouTubeUser = user?.app_metadata?.provider === 'google';
@@ -50,66 +57,80 @@ const StreamSetup = () => {
   useEffect(() => {
     const checkRailwayStatus = async () => {
       setIsCheckingServer(true);
-      try {
-        // Try health endpoint
-        const healthCheck = async () => {
-          try {
-            const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/health');
-            if (response.ok) {
-              return true;
-            }
-            
-            // If we get a 400 error with WebSocket message, the server is actually online
-            if (response.status === 400) {
-              const data = await response.json();
-              if (data.error?.includes("WebSocket")) {
-                return true;
+      
+      // Try each possible endpoint
+      for (const endpoint of RAILWAY_SERVER_ENDPOINTS) {
+        try {
+          // Try root endpoint first - simplest check
+          const rootCheck = async () => {
+            try {
+              const timestamp = new Date().getTime();
+              const response = await fetch(`${endpoint}?nocache=${timestamp}`, {
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0'
+                },
+                cache: 'no-cache'
+              });
+              
+              if (response.ok) {
+                return { available: true, url: endpoint };
               }
+              return { available: false };
+            } catch (e) {
+              return { available: false };
             }
-            return false;
-          } catch (e) {
-            return false;
-          }
-        };
-        
-        // Try root endpoint as fallback
-        const rootCheck = async () => {
-          try {
-            const response = await fetch('https://scorecast-live-streamer-production.up.railway.app/');
-            if (response.ok) {
-              return true;
-            }
-            
-            // If we get a 400 error with WebSocket message, the server is actually online
-            if (response.status === 400) {
-              const data = await response.json();
-              if (data.error?.includes("WebSocket")) {
-                return true;
+          };
+          
+          // Try health endpoint as fallback
+          const healthCheck = async () => {
+            try {
+              const healthEndpoint = endpoint.endsWith('/') ? `${endpoint}health` : `${endpoint}/health`;
+              const timestamp = new Date().getTime();
+              const response = await fetch(`${healthEndpoint}?nocache=${timestamp}`, {
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  'Pragma': 'no-cache',
+                  'Expires': '0'
+                },
+                cache: 'no-cache'
+              });
+              
+              if (response.ok) {
+                return { available: true, url: endpoint };
               }
+              return { available: false };
+            } catch (e) {
+              return { available: false };
             }
-            return false;
-          } catch (e) {
-            return false;
+          };
+          
+          // Try both checks
+          const rootResult = await rootCheck();
+          
+          if (rootResult.available) {
+            setIsRailwayAvailable(true);
+            setRailwayServerUrl(endpoint);
+            console.log(`Railway server is available at ${endpoint}`);
+            break;
           }
-        };
-        
-        // Try both checks
-        const isHealthy = await healthCheck().catch(() => false);
-        const isRootAvailable = !isHealthy ? await rootCheck().catch(() => false) : false;
-        
-        if (isHealthy || isRootAvailable) {
-          setIsRailwayAvailable(true);
-          console.log('Railway server is available');
-        } else {
-          setIsRailwayAvailable(false);
-          console.warn('Railway server appears to be offline');
+          
+          const healthResult = await healthCheck();
+          
+          if (healthResult.available) {
+            setIsRailwayAvailable(true);
+            setRailwayServerUrl(endpoint);
+            console.log(`Railway server is available at ${endpoint} (health check)`);
+            break;
+          }
+          
+        } catch (err) {
+          console.error(`Railway server check failed for ${endpoint}:`, err);
         }
-      } catch (err) {
-        console.error('Railway server status check failed:', err);
-        setIsRailwayAvailable(false);
-      } finally {
-        setIsCheckingServer(false);
       }
+      
+      setIsCheckingServer(false);
     };
     
     checkRailwayStatus();

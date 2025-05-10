@@ -1,6 +1,6 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
+import { checkServerHealth } from '@/utils/serverHealthCheck';
 
 export interface StreamRelayOptions {
   autoReconnect?: boolean;
@@ -33,7 +33,7 @@ export interface StreamRelayControls {
   checkServerStatus: () => Promise<boolean>;
 }
 
-// Expanded list of potential Railway Endpoints
+// Expanded list of potential Railway WebSocket Endpoints
 const RAILWAY_SERVER_ENDPOINTS = [
   'wss://scorecast-live-streamer-production.up.railway.app/stream',
   'wss://scorecast-live-streamer-production.railway.app/stream',
@@ -72,6 +72,13 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   const statsTimerRef = useRef<number | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
   const lastPingTimeRef = useRef<number | null>(null);
+  const discoveredWsEndpointRef = useRef<string | null>(null);
+
+  // Debug logging helper
+  const logDebug = (message: string, ...args: any[]) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] StreamRelay: ${message}`, ...args);
+  };
 
   // CleanUp function to handle socket closing
   const cleanUp = useCallback(() => {
@@ -163,133 +170,36 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
     });
   }, []);
 
-  // Function to check if the Railway FFmpeg server is available
+  // Function to check if the Railway FFmpeg server is available using the improved serverHealthCheck
   const checkServerStatus = useCallback(async (): Promise<boolean> => {
     try {
-      console.log('Checking Railway server status');
+      logDebug('Checking Railway server status using serverHealthCheck');
       
-      // Define multiple possible endpoints to try with various URL patterns
-      const httpEndpoints = [
-        // Standard health endpoints
-        ...RAILWAY_SERVER_ENDPOINTS.map(endpoint => {
-          return endpoint.replace('wss://', 'https://').replace('/stream', '/health');
-        }),
-        
-        // Direct health endpoints
-        'https://scorecast-live-streamer-production.up.railway.app/health',
-        'https://scorecast-live-streamer-production.railway.app/health',
-        'https://scorecast-live-streamer.up.railway.app/health',
-        
-        // Plain health checks (no JSON parsing)
-        'https://scorecast-live-streamer-production.up.railway.app/health-plain',
-        'https://scorecast-live-streamer-production.railway.app/health-plain',
-        
-        // Simple ping endpoints
-        'https://scorecast-live-streamer-production.up.railway.app/ping',
-        'https://scorecast-live-streamer-production.railway.app/ping',
-        
-        // Root endpoints as fallback
-        'https://scorecast-live-streamer-production.up.railway.app/',
-        'https://scorecast-live-streamer-production.railway.app/',
-        'https://scorecast-live-streamer.up.railway.app/'
-      ];
+      // Use the improved serverHealthCheck utility
+      const healthResult = await checkServerHealth();
       
-      // Try each endpoint
-      for (const endpoint of httpEndpoints) {
-        console.log(`Trying endpoint: ${endpoint}`);
+      // Update discovered WebSocket endpoint if we found a working server
+      if (healthResult.status === 'online' && healthResult.serverUrl) {
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          // Convert the HTTP URL to a WebSocket URL
+          const serverUrl = new URL(healthResult.serverUrl);
+          const wsProtocol = serverUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+          // Keep the same hostname and port, but use /stream path
+          const wsUrl = `${wsProtocol}//${serverUrl.host}/stream`;
           
-          const timestamp = new Date().getTime();
-          const response = await fetch(endpoint, {
-            signal: controller.signal,
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0',
-              'Accept': 'application/json, text/plain',
-              'X-Requested-With': 'XMLHttpRequest'
-            },
-            cache: 'no-cache' // Force bypassing the cache
-          });
-          
-          clearTimeout(timeoutId);
-          
-          // Any successful response means the server is online
-          if (response.ok || response.status === 200) {
-            console.log(`Server check successful with endpoint: ${endpoint}`);
-            
-            try {
-              // Try to parse as JSON if possible
-              const contentType = response.headers.get('content-type');
-              if (contentType && contentType.includes('application/json')) {
-                const data = await response.json();
-                console.log('Server status check response:', data);
-              } else {
-                // For text responses like /ping or /health-plain
-                const text = await response.text();
-                console.log('Server text response:', text);
-              }
-            } catch (e) {
-              // Even if parsing fails, we got a response
-              console.log('Failed to parse server response, but server is up');
-            }
-            
-            return true;
-          }
-          
-          // Check for WebSocket connection message which means server is up
-          // but expecting WebSocket connections
-          if (response.status === 400) {
-            try {
-              const errorData = await response.json();
-              if (errorData.error?.includes("WebSocket")) {
-                console.log('Server is running but requires WebSocket connections');
-                return true;
-              }
-            } catch (e) {
-              // Cannot parse response
-            }
-          }
+          logDebug(`Discovered WebSocket endpoint: ${wsUrl}`);
+          discoveredWsEndpointRef.current = wsUrl;
         } catch (err) {
-          console.warn(`Failed to connect to ${endpoint}:`, err);
+          logDebug('Error constructing WebSocket URL:', err);
         }
       }
       
-      // Try WebSocket connection directly as a last resort
-      try {
-        console.log('Trying direct WebSocket connection...');
-        return new Promise((resolve) => {
-          const socket = new WebSocket(wsEndpoint);
-          const timeoutId = setTimeout(() => {
-            socket.close();
-            resolve(false);
-          }, 3000);
-          
-          socket.onopen = () => {
-            clearTimeout(timeoutId);
-            socket.close();
-            resolve(true);
-          };
-          
-          socket.onerror = () => {
-            clearTimeout(timeoutId);
-            socket.close();
-            resolve(false);
-          };
-        });
-      } catch (err) {
-        console.warn('Failed WebSocket connection attempt:', err);
-      }
-      
-      console.log('Server status checks failed - server appears to be offline');
-      return false;
+      return healthResult.status === 'online' && healthResult.ffmpegStatus === 'available';
     } catch (err) {
-      console.error('Error checking server status:', err);
+      logDebug('Error checking server status:', err);
       return false;
     }
-  }, [wsEndpoint]);
+  }, []);
 
   // Function to connect to the WebSocket server
   const connect = useCallback(async (): Promise<boolean> => {
@@ -313,9 +223,14 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
         return false;
       }
       
+      // Use discovered endpoint if available
+      const endpointsToTry = discoveredWsEndpointRef.current ? 
+        [discoveredWsEndpointRef.current, ...RAILWAY_SERVER_ENDPOINTS] : 
+        RAILWAY_SERVER_ENDPOINTS;
+      
       // Try all possible WebSocket endpoints in order
-      for (const endpoint of RAILWAY_SERVER_ENDPOINTS) {
-        console.log(`Attempting WebSocket connection to: ${endpoint}`);
+      for (const endpoint of endpointsToTry) {
+        logDebug(`Attempting WebSocket connection to: ${endpoint}`);
         
         try {
           const socket = new WebSocket(endpoint);
@@ -325,14 +240,14 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             const timeoutId = setTimeout(() => {
               if (socketRef.current === socket) {
                 socket.close();
-                console.warn(`WebSocket connection to ${endpoint} timed out`);
+                logDebug(`WebSocket connection to ${endpoint} timed out`);
                 resolve(false);
               }
-            }, 5000);
+            }, 8000); // Increased timeout for slower connections
             
             socket.onopen = () => {
               clearTimeout(timeoutId);
-              console.log(`WebSocket connection to ${endpoint} established`);
+              logDebug(`WebSocket connection to ${endpoint} established`);
               setState(prev => ({ 
                 ...prev, 
                 isConnected: true, 
@@ -352,7 +267,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             
             socket.onerror = (event) => {
               clearTimeout(timeoutId);
-              console.error(`WebSocket connection to ${endpoint} failed:`, event);
+              logDebug(`WebSocket connection to ${endpoint} failed:`, event);
               if (socketRef.current === socket) {
                 socketRef.current = null;
               }
@@ -361,7 +276,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             
             // Rest of WebSocket event handlers
             socket.onclose = (event) => {
-              console.log(`Railway WebSocket connection to ${endpoint} closed:`, event);
+              logDebug(`Railway WebSocket connection to ${endpoint} closed:`, event);
               const wasConnected = state.isConnected;
               
               if (socketRef.current === socket) {
@@ -417,7 +332,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                 // Handle text messages (control messages)
                 if (typeof event.data === 'string') {
                   const data = JSON.parse(event.data);
-                  console.log('Railway WebSocket message received:', data);
+                  logDebug('Railway WebSocket message received:', data);
                   
                   // Handle different message types
                   switch (data.type) {
@@ -488,7 +403,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                     case 'pong':
                       if (lastPingTimeRef.current) {
                         const latency = Date.now() - lastPingTimeRef.current;
-                        console.log(`Railway server latency: ${latency}ms`);
+                        logDebug(`Railway server latency: ${latency}ms`);
                         lastPingTimeRef.current = null;
                       }
                       break;
@@ -502,7 +417,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
                 } 
                 // Handle binary messages (acknowledgements or other binary data)
                 else {
-                  console.log('Received binary data from Railway server');
+                  logDebug('Received binary data from Railway server');
                 }
               } catch (err) {
                 console.error('Error parsing Railway WebSocket message:', err);
@@ -510,7 +425,7 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
             };
           });
         } catch (err) {
-          console.error(`Failed to connect to WebSocket endpoint ${endpoint}:`, err);
+          logDebug(`Failed to connect to WebSocket endpoint ${endpoint}:`, err);
         }
       }
       
@@ -626,15 +541,16 @@ export const useStreamRelay = (options: StreamRelayOptions = {}): [StreamRelaySt
   // Automatic server status check on mount
   useEffect(() => {
     const checkStatus = async () => {
+      logDebug('Performing initial server status check');
       const isAvailable = await checkServerStatus();
       if (!isAvailable) {
-        console.warn('Railway streaming server appears to be offline');
+        logDebug('Railway streaming server appears to be offline');
         setState(prev => ({ 
           ...prev, 
           error: 'Railway streaming server appears to be offline' 
         }));
       } else {
-        console.log('Railway streaming server is available');
+        logDebug('Railway streaming server is available');
         setState(prev => ({
           ...prev,
           error: null

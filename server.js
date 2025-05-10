@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-import cors from 'express-cors';
+import cors from 'cors'; // Updated to use standard cors package
 
 // Get __dirname equivalent in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -14,13 +14,14 @@ const PORT = process.env.PORT || 8080;
 
 const app = express();
 
-// Add CORS support with more permissive configuration
+// Add proper CORS support with permissive configuration
 app.use(cors({
-  allowedOrigins: ['*'],
-  headers: ['Content-Type', 'Authorization', 'X-Requested-With']
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Additional CORS headers for all routes
+// Additional CORS headers for all routes as backup
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -64,13 +65,14 @@ const checkFFmpeg = async () => {
   }
 };
 
-// Health check endpoint that always returns 200 with status in body
+// Enhanced health check endpoint that's more resilient
 app.get('/health', async (req, res) => {
   const ffmpegStatus = await checkFFmpeg();
   
   // Always return 200 with health details in body
   // This helps with detection across different environments
-  res.status(200).json({
+  // And specifically formats response for the client-side health checker
+  const response = {
     status: ffmpegStatus.available ? 'ok' : 'warning',
     message: ffmpegStatus.available ? 'Server is running with FFmpeg available' : 'Server is running but FFmpeg is not available',
     timestamp: new Date().toISOString(),
@@ -86,24 +88,41 @@ app.get('/health', async (req, res) => {
       nodeVersion: process.version
     },
     activeStreams: 0,
-    connectedClients: 0
-  });
+    connectedClients: 0,
+    railwayApp: true // Flag to identify this as a Railway app
+  };
+  
+  // Set proper headers to prevent caching issues
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  
+  res.status(200).json(response);
 });
 
 // Add plain text health check - very minimal response for basic checks
+// This format is easy to parse and works with simple HTTP clients
 app.get('/health-plain', async (req, res) => {
   const ffmpegStatus = await checkFFmpeg();
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.status(200).send(ffmpegStatus.available ? 'OK: FFmpeg available' : 'WARNING: FFmpeg not available');
 });
 
 // Add ping endpoint that doesn't require JSON parsing
 app.get('/ping', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.status(200).send('pong');
 });
 
 // FFmpeg specific check endpoint
 app.get('/ffmpeg-check', async (req, res) => {
   const ffmpegStatus = await checkFFmpeg();
+  
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   
   res.status(200).json({
     ffmpegAvailable: ffmpegStatus.available,
@@ -154,6 +173,12 @@ app.get('*', (req, res) => {
 // Start the server
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on port ${PORT}`);
+  
+  // Log URLs to make debugging easier
+  console.log(`Server URLs:`);
+  console.log(`- Local: http://localhost:${PORT}`);
+  console.log(`- Health check: http://localhost:${PORT}/health`);
+  console.log(`- FFmpeg check: http://localhost:${PORT}/ffmpeg-check`);
   
   // Test FFmpeg on startup and log the result
   try {
